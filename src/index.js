@@ -219,19 +219,27 @@ async function refreshOnePublication(env,groupChatId,force=false){
 
 async function refreshPublicationRow(env,row,force){
   const text=await publicText(env,localNow().date);
-  if(!force&&row.last_text===text)return;
+  if(row.last_text===text)return;
   const payload={chat_id:row.group_chat_id,message_id:row.message_id,text,parse_mode:'HTML',disable_web_page_preview:true,reply_markup:publicKeyboard(row.bot_username)};
   const editResp=await tg(env,'editMessageText',payload);
   const edit=await safeJson(editResp);
+
   if(edit?.ok){
     await env.DB.prepare('UPDATE publications SET last_text=?,updated_at=CURRENT_TIMESTAMP WHERE group_chat_id=?').bind(text,row.group_chat_id).run();
     return;
   }
-  const sentResp=await tg(env,'sendMessage',{chat_id:row.group_chat_id,text,parse_mode:'HTML',disable_web_page_preview:true,reply_markup:publicKeyboard(row.bot_username)});
-  const sent=await safeJson(sentResp);
-  if(!sent?.ok)return;
-  await tg(env,'pinChatMessage',{chat_id:row.group_chat_id,message_id:sent.result.message_id,disable_notification:true});
-  await env.DB.prepare('UPDATE publications SET message_id=?,last_text=?,updated_at=CURRENT_TIMESTAMP WHERE group_chat_id=?').bind(sent.result.message_id,text,row.group_chat_id).run();
+
+  const description=String(edit?.description||'Unknown Telegram edit error');
+  if(description.toLowerCase().includes('message is not modified')){
+    await env.DB.prepare('UPDATE publications SET last_text=?,updated_at=CURRENT_TIMESTAMP WHERE group_chat_id=?').bind(text,row.group_chat_id).run();
+    return;
+  }
+
+  console.log('Pinned dashboard edit failed', {
+    group_chat_id: row.group_chat_id,
+    message_id: row.message_id,
+    error: description
+  });
 }
 
 async function callback(q,env){
