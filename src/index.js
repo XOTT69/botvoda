@@ -64,7 +64,7 @@ async function handle(up,env){
   if(!text)return send(env,chat,'Перешли текстове повідомлення з графіком.',{reply_markup:KB});
   if(text.startsWith('/start')){
     const adminLine=admin?'\n\n👑 Ви адміністратор: можете оновлювати графік пересланими повідомленнями.':'';
-    return send(env,chat,'💧⚡ <b>Чабани: вода + світло</b>\n\nСвітло вдома: <b>2.2</b>\nНасосна: <b>1.2</b>\nРезерв води: <b>06:00–10:00 · 12:00–14:00 · 18:00–24:00</b>\n\nТут завжди актуальний графік і персональні нагадування.'+adminLine,{reply_markup:KB});
+    return send(env,chat,'💧⚡ <b>Чабани: вода + світло</b>\n\nСвітло вдома: <b>2.2</b>\nВода залежить від групи: <b>1.2</b>\nРезерв води: <b>06:00–10:00 · 12:00–14:00 · 18:00–24:00</b>\n\nТут завжди актуальний графік і персональні нагадування.'+adminLine,{reply_markup:KB});
   }
   if(text==='📅 Сьогодні'||text==='/today')return show(env,chat,localNow().date);
   if(text==='🌅 Завтра'||text==='/tomorrow')return show(env,chat,addDays(localNow().date,1));
@@ -237,17 +237,68 @@ function publicKeyboard(username){
   return {inline_keyboard:[[{text:'🔔 Нагадування та актуальний графік',url:`https://t.me/${username}?start=chabany`}]]};
 }
 
+async function lastScheduleUpdate(env,date){
+  const row=await env.DB.prepare(`
+    SELECT MAX(ts) AS ts FROM (
+      SELECT MAX(created_at) AS ts
+      FROM schedules
+      WHERE chat_id=? AND schedule_date=? AND group_name IN ('1.2','2.2')
+      UNION ALL
+      SELECT updated_at AS ts
+      FROM water_rules
+      WHERE chat_id=?
+    )
+  `).bind(GLOBAL_SCOPE,date,GLOBAL_SCOPE).first();
+
+  if(!row?.ts)return null;
+  const d=new Date(String(row.ts).replace(' ','T')+'Z');
+  if(Number.isNaN(d.getTime()))return null;
+  return new Intl.DateTimeFormat('uk-UA',{
+    timeZone:TZ,
+    hour:'2-digit',
+    minute:'2-digit',
+    hourCycle:'h23'
+  }).format(d);
+}
+
 async function publicText(env,date){
   const a=await load(env,date);
+  const updated=await lastScheduleUpdate(env,date);
+  const updatedLine=updated?`\n🕒 Оновлено: <b>${updated}</b>`:'';
+
   const tomorrow=addDays(date,1);
-  const tomorrowCount=await env.DB.prepare('SELECT COUNT(*) AS c FROM schedules WHERE chat_id=? AND schedule_date=? AND group_name IN (?,?)').bind(GLOBAL_SCOPE,tomorrow,'1.2','2.2').first();
+  const tomorrowCount=await env.DB.prepare('SELECT COUNT(*) AS c FROM schedules WHERE chat_id=? AND schedule_date=? AND group_name IN (?,?)')
+    .bind(GLOBAL_SCOPE,tomorrow,'1.2','2.2').first();
+
   if(!a){
-    return `📍 <b>Чабани • ${humanDate(date)}</b>\n\n⏳ Актуальний графік ще не завантажено.\n\n🔔 Персональні нагадування та деталі — у боті.`;
+    return `📍 <b>Чабани • ${humanDate(date)}</b>${updatedLine}\n\n⏳ Актуальний графік ще не завантажено.\n\n🔔 Персональні нагадування та деталі — у боті.`;
   }
-  let s=`📍 <b>Чабани • ${humanDate(date)}</b>\n\n💧 <b>Вода — ${duration(total(a.water))}</b>\n${formatIntervals(a.water)}\n\n⚡ <b>Світло 2.2 — ${duration(total(a.p22))}</b>\n${formatIntervals(a.p22)}\n\n⚡💧 <b>Вода + світло — ${duration(total(a.both))}</b>\n${formatIntervals(a.both)}`;
-  if(a.best)s+=`\n\n⭐ <b>Найкраще вікно: ${formatIntervals([a.best])} — ${duration(a.best[1]-a.best[0])}</b>`;
-  if(Number(tomorrowCount?.c||0)>=2)s+='\n\n🌅 Графік на завтра вже завантажено — дивіться в боті.';
-  s+='\n\n🔔 Персональні нагадування та деталі — у боті.';
+
+  let s=`📍 <b>Чабани • ${humanDate(date)}</b>${updatedLine}
+
+ℹ️ <b>Як читати цей графік</b>
+Вода залежить від електропостачання групи <b>1.2</b>.
+Якщо у групи <b>1.2</b> немає світла — вода подається за резервним графіком.
+Нижче вже пораховано, коли буде <b>вода</b>, <b>світло у групи 2.2</b> та коли вони будуть <b>одночасно</b>.
+
+💧 <b>Коли буде вода — ${duration(total(a.water))} за добу</b>
+${formatIntervals(a.water)}
+
+⚡ <b>Коли буде світло у групи 2.2 — ${duration(total(a.p22))}</b>
+${formatIntervals(a.p22)}
+
+⚡💧 <b>Коли одночасно буде і вода, і світло — ${duration(total(a.both))}</b>
+${formatIntervals(a.both)}`;
+
+  if(a.best){
+    s+=`\n\n⭐ <b>Найзручніше безперервне вікно</b>\n${formatIntervals([a.best])} — <b>${duration(a.best[1]-a.best[0])}</b>\nУ цей час одночасно будуть <b>і вода, і світло</b>.`;
+  }
+
+  if(Number(tomorrowCount?.c||0)>=2){
+    s+='\n\n🌅 <b>Графік на завтра вже завантажено</b> — дивіться в боті.';
+  }
+
+  s+='\n\n🔔 <b>Хочете персональне нагадування?</b>\nУ боті можна увімкнути сповіщення перед появою води або перед початком періоду <b>вода + світло</b>.';
   return s;
 }
 
