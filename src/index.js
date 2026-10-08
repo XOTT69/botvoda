@@ -9,7 +9,10 @@ export default {
   if(req.method==='GET'&&u.pathname==='/setup-webhook')return setupWebhook(u,env);
   if(req.method==='GET'&&u.pathname==='/webhook-info')return webhookInfo(env);
   if(req.method==='POST'&&u.pathname==='/telegram'){
-    if(env.TELEGRAM_WEBHOOK_SECRET&&req.headers.get('X-Telegram-Bot-Api-Secret-Token')!==env.TELEGRAM_WEBHOOK_SECRET)return new Response('Forbidden',{status:403});
+    if(env.TELEGRAM_WEBHOOK_SECRET){
+      const expected=await webhookSecret(env);
+      if(req.headers.get('X-Telegram-Bot-Api-Secret-Token')!==expected)return new Response('Forbidden',{status:403});
+    }
     await handle(await req.json(),env);
     return new Response('OK');
   }
@@ -48,11 +51,16 @@ async function notifyOne(env,s,now){const n=localNow(now,TZ),a=await load(env,s.
 async function setupWebhook(u,env){
   if(!env.TELEGRAM_BOT_TOKEN)return json({ok:false,error:'TELEGRAM_BOT_TOKEN is missing'},500);
   if(!env.TELEGRAM_WEBHOOK_SECRET)return json({ok:false,error:'TELEGRAM_WEBHOOK_SECRET is missing'},500);
-  if(!/^[A-Za-z0-9_-]{1,256}$/.test(env.TELEGRAM_WEBHOOK_SECRET))return json({ok:false,error:'TELEGRAM_WEBHOOK_SECRET must contain only A-Z, a-z, 0-9, _ or -'},500);
+  const secretToken=await webhookSecret(env);
   const webhookUrl=`${u.origin}/telegram`;
-  const r=await tg(env,'setWebhook',{url:webhookUrl,secret_token:env.TELEGRAM_WEBHOOK_SECRET,allowed_updates:['message','callback_query'],drop_pending_updates:false});
+  const r=await tg(env,'setWebhook',{url:webhookUrl,secret_token:secretToken,allowed_updates:['message','callback_query'],drop_pending_updates:false});
   let body; try{body=await r.json()}catch{body={ok:false,error:'Invalid Telegram response'}};
   return json({ok:r.ok&&body.ok,webhook_url:webhookUrl,telegram:body},r.ok&&body.ok?200:502);
+}
+async function webhookSecret(env){
+  const data=new TextEncoder().encode(env.TELEGRAM_WEBHOOK_SECRET||'');
+  const digest=await crypto.subtle.digest('SHA-256',data);
+  return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 async function webhookInfo(env){
   if(!env.TELEGRAM_BOT_TOKEN)return json({ok:false,error:'TELEGRAM_BOT_TOKEN is missing'},500);
