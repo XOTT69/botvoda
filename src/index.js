@@ -172,10 +172,12 @@ async function setupGroupPublication(m,env){
   await ensurePublications(env);
   await ensureGlobalWater(env);
   const chat=String(m.chat.id);
+
   const meResp=await tg(env,'getMe',{});
   const me=await safeJson(meResp);
   if(!me?.ok||!me.result?.username)return send(env,chat,'❌ Не зміг отримати username бота. Спробуй ще раз.');
   const username=me.result.username;
+
   const rights=await getBotChatRights(env,chat,me.result.id);
   if(m.chat.type==='channel'){
     const missing=[];
@@ -183,18 +185,54 @@ async function setupGroupPublication(m,env){
     if(!rights?.can_edit_messages)missing.push('Редагувати повідомлення');
     if(missing.length)return send(env,chat,`⛔️ Боту бракує прав у каналі:\n• ${missing.join('\n• ')}\n\nВідкрий <b>Канал → Адміністратори → бот</b> і увімкни ці права, потім повтори /setupgroup.`);
   }
+
   const text=await publicText(env,localNow().date);
-  const sentResp=await tg(env,'sendMessage',{chat_id:chat,text,parse_mode:'HTML',disable_web_page_preview:true,reply_markup:publicKeyboard(username)});
+  const existing=await env.DB.prepare('SELECT * FROM publications WHERE group_chat_id=?').bind(chat).first();
+
+  if(existing?.message_id){
+    const editResp=await tg(env,'editMessageText',{
+      chat_id:chat,
+      message_id:existing.message_id,
+      text,
+      parse_mode:'HTML',
+      disable_web_page_preview:true,
+      reply_markup:publicKeyboard(username)
+    });
+    const edit=await safeJson(editResp);
+    const description=String(edit?.description||'');
+
+    if(edit?.ok||description.toLowerCase().includes('message is not modified')){
+      const pinResp=await tg(env,'pinChatMessage',{chat_id:chat,message_id:existing.message_id,disable_notification:true});
+      const pin=await safeJson(pinResp);
+      await env.DB.prepare('UPDATE publications SET bot_username=?,group_title=?,last_text=?,updated_at=CURRENT_TIMESTAMP WHERE group_chat_id=?').bind(username,m.chat.title||'',text,chat).run();
+      if(!pin?.ok)return send(env,chat,'⚠️ Актуальне повідомлення знайдено й оновлено, але Telegram не дав його закріпити. Перевір право закріплювати повідомлення.');
+      return send(env,chat,'✅ Підключення вже було. Використовую те саме закріплене повідомлення — нове не створював.');
+    }
+
+    if(!description.toLowerCase().includes('message to edit not found')){
+      return send(env,chat,`❌ Старе повідомлення знайдено в базі, але Telegram не дозволив його редагувати:\n<code>${escapeHtml(description||'невідома помилка')}</code>`);
+    }
+  }
+
+  const sentResp=await tg(env,'sendMessage',{
+    chat_id:chat,
+    text,
+    parse_mode:'HTML',
+    disable_web_page_preview:true,
+    reply_markup:publicKeyboard(username)
+  });
   const sent=await safeJson(sentResp);
-  if(!sent?.ok)return send(env,chat,'❌ Не зміг створити повідомлення. Перевір права бота в групі.');
+  if(!sent?.ok)return send(env,chat,`❌ Не зміг створити нове табло. Telegram: <code>${escapeHtml(sent?.description||'невідома помилка')}</code>`);
+
   const messageId=sent.result.message_id;
   const pinResp=await tg(env,'pinChatMessage',{chat_id:chat,message_id:messageId,disable_notification:true});
   const pin=await safeJson(pinResp);
-  await env.DB.prepare('INSERT INTO publications(group_chat_id,message_id,bot_username,group_title,last_text) VALUES(?,?,?,?,?) ON CONFLICT(group_chat_id) DO UPDATE SET message_id=excluded.message_id,bot_username=excluded.bot_username,group_title=excluded.group_title,last_text=excluded.last_text,updated_at=CURRENT_TIMESTAMP').bind(chat,messageId,username,m.chat.title||'',text).run();
-  if(!pin?.ok)return send(env,chat,'⚠️ Повідомлення створено, але не вдалося закріпити. Дай боту право <b>закріплювати повідомлення</b> і виконай /setupgroup ще раз.');
-  return send(env,chat,'✅ Готово. Актуальний статус закріплено. Тепер він буде редагуватися автоматично після кожного оновлення графіка.');
-}
 
+  await env.DB.prepare('INSERT INTO publications(group_chat_id,message_id,bot_username,group_title,last_text) VALUES(?,?,?,?,?) ON CONFLICT(group_chat_id) DO UPDATE SET message_id=excluded.message_id,bot_username=excluded.bot_username,group_title=excluded.group_title,last_text=excluded.last_text,updated_at=CURRENT_TIMESTAMP').bind(chat,messageId,username,m.chat.title||'',text).run();
+
+  if(!pin?.ok)return send(env,chat,'⚠️ Нове табло створено й збережено, але не вдалося закріпити. Перевір право бота закріплювати повідомлення.');
+  return send(env,chat,'✅ Старий message_id був недійсний. Створив одне нове табло, закріпив його і прив’язав у базі. Далі оновлення будуть лише редагувати цей пост.');
+}
 function publicKeyboard(username){
   return {inline_keyboard:[[{text:'🔔 Нагадування та актуальний графік',url:`https://t.me/${username}?start=chabany`}]]};
 }
