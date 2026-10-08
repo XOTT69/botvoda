@@ -30,7 +30,7 @@ export default {
 
 async function handle(up,env){
   if(up.callback_query)return callback(up.callback_query,env);
-  const m=up.message;
+  const m=up.message||up.channel_post;
   if(!m?.chat?.id)return;
   const chat=String(m.chat.id);
   const text=(m.text||m.caption||'').trim();
@@ -43,11 +43,11 @@ async function handle(up,env){
 
   if(!privateChat){
     if(/^\/setupgroup(?:@\w+)?$/i.test(text)){
-      if(!admin)return send(env,chat,'⛔️ Підключити групу може лише власник бота.');
+      if(m.chat.type!=='channel'&&!admin)return send(env,chat,'⛔️ Підключити групу може лише власник бота.');
       return setupGroupPublication(m,env);
     }
     if(/^\/refreshgroup(?:@\w+)?$/i.test(text)){
-      if(!admin)return send(env,chat,'⛔️ Оновити закріплене повідомлення може лише власник бота.');
+      if(m.chat.type!=='channel'&&!admin)return send(env,chat,'⛔️ Оновити закріплене повідомлення може лише власник бота.');
       await refreshOnePublication(env,chat,true);
       return send(env,chat,'✅ Закріплене повідомлення оновлено.');
     }
@@ -274,7 +274,7 @@ async function setupWebhook(u,env){
   if(!env.TELEGRAM_WEBHOOK_SECRET)return json({ok:false,error:'TELEGRAM_WEBHOOK_SECRET is missing'},500);
   const secretToken=await webhookSecret(env);
   const webhookUrl=`${u.origin}/telegram`;
-  const r=await tg(env,'setWebhook',{url:webhookUrl,secret_token:secretToken,allowed_updates:['message','callback_query'],drop_pending_updates:false});
+  const r=await tg(env,'setWebhook',{url:webhookUrl,secret_token:secretToken,allowed_updates:['message','channel_post','callback_query'],drop_pending_updates:false});
   let body; try{body=await r.json()}catch{body={ok:false,error:'Invalid Telegram response'}};
   return json({ok:r.ok&&body.ok,webhook_url:webhookUrl,telegram:body},r.ok&&body.ok?200:502);
 }
