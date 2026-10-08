@@ -3,7 +3,18 @@ const TZ='Europe/Kyiv';
 const KB={keyboard:[[{text:'📅 Сьогодні'},{text:'🌅 Завтра'}],[{text:'📋 Графік'},{text:'🔔 Сповіщення'}],[{text:'ℹ️ Допомога'}]],resize_keyboard:true,is_persistent:true};
 
 export default {
- async fetch(req,env){const u=new URL(req.url);if(req.method==='GET'&&u.pathname==='/')return new Response('Chabany Water Bot: OK');if(req.method==='POST'&&u.pathname==='/telegram'){if(env.TELEGRAM_WEBHOOK_SECRET&&req.headers.get('X-Telegram-Bot-Api-Secret-Token')!==env.TELEGRAM_WEBHOOK_SECRET)return new Response('Forbidden',{status:403});await handle(await req.json(),env);return new Response('OK')}return new Response('Not found',{status:404})},
+ async fetch(req,env){
+  const u=new URL(req.url);
+  if(req.method==='GET'&&u.pathname==='/')return new Response('Chabany Water Bot: OK');
+  if(req.method==='GET'&&u.pathname==='/setup-webhook')return setupWebhook(u,env);
+  if(req.method==='GET'&&u.pathname==='/webhook-info')return webhookInfo(env);
+  if(req.method==='POST'&&u.pathname==='/telegram'){
+    if(env.TELEGRAM_WEBHOOK_SECRET&&req.headers.get('X-Telegram-Bot-Api-Secret-Token')!==env.TELEGRAM_WEBHOOK_SECRET)return new Response('Forbidden',{status:403});
+    await handle(await req.json(),env);
+    return new Response('OK');
+  }
+  return new Response('Not found',{status:404});
+ },
  async scheduled(c,env,ctx){ctx.waitUntil(notifyAll(new Date(c.scheduledTime),env))}
 };
 
@@ -34,6 +45,23 @@ async function notifyMenu(env,c,msg){const s=await settings(env,c);if(msg)return
 async function notifyAll(now,env){const {results}=await env.DB.prepare('SELECT * FROM notification_settings').all();for(const s of results)try{await notifyOne(env,s,now)}catch(e){console.log('notify',e)}}
 async function notifyOne(env,s,now){const n=localNow(now,TZ),a=await load(env,s.chat_id,n.date);if(!a)return;for(const e of buildEvents(a,s,n.date)){if(e.minute<n.minute-2||e.minute>n.minute+2)continue;const r=await env.DB.prepare('INSERT OR IGNORE INTO notification_log(chat_id,event_key,event_at) VALUES(?,?,?)').bind(s.chat_id,e.key,`${n.date} ${e.minute}`).run();if(r.meta.changes)await send(env,s.chat_id,e.text)}}
 
+async function setupWebhook(u,env){
+  if(!env.TELEGRAM_BOT_TOKEN)return json({ok:false,error:'TELEGRAM_BOT_TOKEN is missing'},500);
+  if(!env.TELEGRAM_WEBHOOK_SECRET)return json({ok:false,error:'TELEGRAM_WEBHOOK_SECRET is missing'},500);
+  if(!/^[A-Za-z0-9_-]{1,256}$/.test(env.TELEGRAM_WEBHOOK_SECRET))return json({ok:false,error:'TELEGRAM_WEBHOOK_SECRET must contain only A-Z, a-z, 0-9, _ or -'},500);
+  const webhookUrl=`${u.origin}/telegram`;
+  const r=await tg(env,'setWebhook',{url:webhookUrl,secret_token:env.TELEGRAM_WEBHOOK_SECRET,allowed_updates:['message','callback_query'],drop_pending_updates:false});
+  let body; try{body=await r.json()}catch{body={ok:false,error:'Invalid Telegram response'}};
+  return json({ok:r.ok&&body.ok,webhook_url:webhookUrl,telegram:body},r.ok&&body.ok?200:502);
+}
+async function webhookInfo(env){
+  if(!env.TELEGRAM_BOT_TOKEN)return json({ok:false,error:'TELEGRAM_BOT_TOKEN is missing'},500);
+  const r=await tg(env,'getWebhookInfo',{});
+  let body; try{body=await r.json()}catch{body={ok:false,error:'Invalid Telegram response'}};
+  if(body?.result?.url)body.result.url=body.result.url.replace(/\/telegram$/,'/telegram');
+  return json(body,r.ok?200:502);
+}
+const json=(value,status=200)=>new Response(JSON.stringify(value,null,2),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
 async function tg(env,method,payload){const r=await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});if(!r.ok)console.log(method,await r.text());return r}
 const send=(env,c,text,opt={})=>tg(env,'sendMessage',{chat_id:c,text,parse_mode:'HTML',disable_web_page_preview:true,...opt});
 const answer=(env,id)=>tg(env,'answerCallbackQuery',{callback_query_id:id});
