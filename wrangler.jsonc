@@ -1,1 +1,1 @@
-{"$schema":"./node_modules/wrangler/config-schema.json","name":"botvoda","main":"src/index.js","compatibility_date":"2026-10-08","triggers":{"crons":["*/5 * * * *"]},"d1_databases":[{"binding":"DB","database_name":"chabany-water-bot-db","database_id":"PASTE_D1_DATABASE_ID_HERE"}]}
+{"$schema":"./node_modules/wrangler/config-schema.json","name":"botvoda","main":"src/index.js","compatibility_date":"2026-10-08","triggers":{"crons":["*/5 * * * *"]},"d1_databases":[{"binding":"DB","database_name":"chabany-water-bot-db","database_id":"1f2002ba-8349-4a89-bc7f-234b15e75c54"}]}
