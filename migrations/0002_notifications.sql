@@ -1,0 +1,3 @@
+CREATE TABLE IF NOT EXISTS notification_settings (chat_id TEXT PRIMARY KEY,both_alerts INTEGER NOT NULL DEFAULT 1 CHECK(both_alerts IN (0,1)),water_alerts INTEGER NOT NULL DEFAULT 1 CHECK(water_alerts IN (0,1)),end_alerts INTEGER NOT NULL DEFAULT 1 CHECK(end_alerts IN (0,1)),lead_minutes INTEGER NOT NULL DEFAULT 30,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS notification_log (id INTEGER PRIMARY KEY AUTOINCREMENT,chat_id TEXT NOT NULL,event_key TEXT NOT NULL,event_at TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,UNIQUE(chat_id,event_key));
+CREATE INDEX IF NOT EXISTS idx_notification_log_created_at ON notification_log(created_at);
