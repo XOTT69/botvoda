@@ -48,8 +48,12 @@ async function handle(up,env){
     }
     if(/^\/refreshgroup(?:@\w+)?$/i.test(text)){
       if(m.chat.type!=='channel'&&!admin)return send(env,chat,'⛔️ Оновити закріплене повідомлення може лише власник бота.');
-      await refreshOnePublication(env,chat,true);
-      return send(env,chat,'✅ Закріплене повідомлення оновлено.');
+      const r=await refreshOnePublication(env,chat,true);
+      if(r?.ok)return send(env,chat,'✅ Закріплене повідомлення відредаговано.');
+      return send(env,chat,`❌ Не вдалося відредагувати закріплене повідомлення.\n\nTelegram: <code>${escapeHtml(r?.error||'невідома помилка')}</code>\n\nДля каналу перевір у правах бота: <b>Публікувати повідомлення</b> + <b>Редагувати повідомлення</b>.`);
+    }
+    if(/^\/checkgroup(?:@\w+)?$/i.test(text)){
+      return checkGroupRights(m,env);
     }
     return;
   }
@@ -172,6 +176,13 @@ async function setupGroupPublication(m,env){
   const me=await safeJson(meResp);
   if(!me?.ok||!me.result?.username)return send(env,chat,'❌ Не зміг отримати username бота. Спробуй ще раз.');
   const username=me.result.username;
+  const rights=await getBotChatRights(env,chat,me.result.id);
+  if(m.chat.type==='channel'){
+    const missing=[];
+    if(!rights?.can_post_messages)missing.push('Публікувати повідомлення');
+    if(!rights?.can_edit_messages)missing.push('Редагувати повідомлення');
+    if(missing.length)return send(env,chat,`⛔️ Боту бракує прав у каналі:\n• ${missing.join('\n• ')}\n\nВідкрий <b>Канал → Адміністратори → бот</b> і увімкни ці права, потім повтори /setupgroup.`);
+  }
   const text=await publicText(env,localNow().date);
   const sentResp=await tg(env,'sendMessage',{chat_id:chat,text,parse_mode:'HTML',disable_web_page_preview:true,reply_markup:publicKeyboard(username)});
   const sent=await safeJson(sentResp);
@@ -213,26 +224,26 @@ async function refreshPublications(env,force=false){
 async function refreshOnePublication(env,groupChatId,force=false){
   await ensurePublications(env);
   const row=await env.DB.prepare('SELECT * FROM publications WHERE group_chat_id=?').bind(groupChatId).first();
-  if(!row)return;
-  await refreshPublicationRow(env,row,force);
+  if(!row)return {ok:false,error:'Група/канал ще не підключені через /setupgroup'};
+  return refreshPublicationRow(env,row,force);
 }
 
 async function refreshPublicationRow(env,row,force){
   const text=await publicText(env,localNow().date);
-  if(row.last_text===text)return;
+  if(row.last_text===text&&!force)return {ok:true,unchanged:true};
   const payload={chat_id:row.group_chat_id,message_id:row.message_id,text,parse_mode:'HTML',disable_web_page_preview:true,reply_markup:publicKeyboard(row.bot_username)};
   const editResp=await tg(env,'editMessageText',payload);
   const edit=await safeJson(editResp);
 
   if(edit?.ok){
     await env.DB.prepare('UPDATE publications SET last_text=?,updated_at=CURRENT_TIMESTAMP WHERE group_chat_id=?').bind(text,row.group_chat_id).run();
-    return;
+    return {ok:true};
   }
 
   const description=String(edit?.description||'Unknown Telegram edit error');
   if(description.toLowerCase().includes('message is not modified')){
     await env.DB.prepare('UPDATE publications SET last_text=?,updated_at=CURRENT_TIMESTAMP WHERE group_chat_id=?').bind(text,row.group_chat_id).run();
-    return;
+    return {ok:true,unchanged:true};
   }
 
   console.log('Pinned dashboard edit failed', {
@@ -240,8 +251,36 @@ async function refreshPublicationRow(env,row,force){
     message_id: row.message_id,
     error: description
   });
+  return {ok:false,error:description};
 }
 
+async function getBotChatRights(env,chatId,botId){
+  const r=await tg(env,'getChatMember',{chat_id:chatId,user_id:botId});
+  const body=await safeJson(r);
+  return body?.ok?body.result:null;
+}
+
+async function checkGroupRights(m,env){
+  const chat=String(m.chat.id);
+  const meResp=await tg(env,'getMe',{});
+  const me=await safeJson(meResp);
+  if(!me?.ok)return send(env,chat,'❌ Не вдалося отримати інформацію про бота.');
+  const rights=await getBotChatRights(env,chat,me.result.id);
+  if(!rights)return send(env,chat,'❌ Telegram не повернув права бота.');
+  const row=await env.DB.prepare('SELECT message_id FROM publications WHERE group_chat_id=?').bind(chat).first();
+  const yes=x=>x?'✅':'❌';
+  let s=`🔎 <b>Перевірка бота</b>\n\nТип: <b>${m.chat.type}</b>\nСтатус: <b>${rights.status||'—'}</b>\n`;
+  if(m.chat.type==='channel'){
+    s+=`\n${yes(rights.can_post_messages)} Публікувати повідомлення\n${yes(rights.can_edit_messages)} Редагувати повідомлення\n${yes(rights.can_delete_messages)} Видаляти повідомлення`;
+  }else{
+    s+=`\n${yes(rights.can_pin_messages!==false)} Закріплювати повідомлення`;
+  }
+  s+=`\n\n📌 Збережений message_id: <code>${row?.message_id||'немає'}</code>`;
+  if(m.chat.type==='channel'&&!rights.can_edit_messages)s+='\n\n⚠️ Для автооновлення каналу увімкни боту <b>Редагувати повідомлення</b>.';
+  return send(env,chat,s);
+}
+
+function escapeHtml(s=''){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 async function callback(q,env){
   const c=String(q.message?.chat?.id||'');
   if(!c)return;
