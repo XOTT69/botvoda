@@ -261,44 +261,53 @@ async function lastScheduleUpdate(env,date){
   }).format(d);
 }
 
-async function publicText(env,date){
-  const a=await load(env,date);
-  const updated=await lastScheduleUpdate(env,date);
-  const updatedLine=updated?`\n🕒 Оновлено: <b>${updated}</b>`:'';
-
-  const tomorrow=addDays(date,1);
-  const tomorrowCount=await env.DB.prepare('SELECT COUNT(*) AS c FROM schedules WHERE chat_id=? AND schedule_date=? AND group_name IN (?,?)')
-    .bind(GLOBAL_SCOPE,tomorrow,'1.2','2.2').first();
-
+function publicDayBlock(label,date,a,updated){
   if(!a){
-    return `📍 <b>Чабани • ${humanDate(date)}</b>${updatedLine}\n\n⏳ Актуальний графік ще не завантажено.\n\n🔔 Персональні нагадування та деталі — у боті.`;
+    return `📅 <b>${label} • ${humanDate(date)}</b>\n⏳ Графік ще не завантажено.`;
   }
+  const updateLine=updated?`\n🕒 Оновлено: <b>${updated}</b>`:'';
+  let s=`📅 <b>${label} • ${humanDate(date)}</b>${updateLine}
 
-  let s=`📍 <b>Чабани • ${humanDate(date)}</b>${updatedLine}
+💧 <b>Вода — ${duration(total(a.water))} за добу</b>
+${formatIntervals(a.water)}
+
+⚡ <b>Світло групи 2.2 — ${duration(total(a.p22))}</b>
+${formatIntervals(a.p22)}
+
+⚡💧 <b>Вода + світло одночасно — ${duration(total(a.both))}</b>
+${formatIntervals(a.both)}`;
+
+  if(a.best){
+    s+=`\n\n⭐ <b>Найзручніше безперервне вікно</b>\n${formatIntervals([a.best])} — <b>${duration(a.best[1]-a.best[0])}</b>`;
+  }
+  return s;
+}
+
+async function publicText(env,date){
+  const today=date;
+  const tomorrow=addDays(today,1);
+
+  const [todayData,tomorrowData,todayUpdated,tomorrowUpdated]=await Promise.all([
+    load(env,today),
+    load(env,tomorrow),
+    lastScheduleUpdate(env,today),
+    lastScheduleUpdate(env,tomorrow)
+  ]);
+
+  let s=`📍 <b>Чабани • вода та світло</b>
 
 ℹ️ <b>Як читати цей графік</b>
 Вода залежить від електропостачання групи <b>1.2</b>.
 Якщо у групи <b>1.2</b> немає світла — вода подається за резервним графіком.
 Нижче вже пораховано, коли буде <b>вода</b>, <b>світло у групи 2.2</b> та коли вони будуть <b>одночасно</b>.
 
-💧 <b>Коли буде вода — ${duration(total(a.water))} за добу</b>
-${formatIntervals(a.water)}
+${publicDayBlock('СЬОГОДНІ',today,todayData,todayUpdated)}`;
 
-⚡ <b>Коли буде світло у групи 2.2 — ${duration(total(a.p22))}</b>
-${formatIntervals(a.p22)}
-
-⚡💧 <b>Коли одночасно буде і вода, і світло — ${duration(total(a.both))}</b>
-${formatIntervals(a.both)}`;
-
-  if(a.best){
-    s+=`\n\n⭐ <b>Найзручніше безперервне вікно</b>\n${formatIntervals([a.best])} — <b>${duration(a.best[1]-a.best[0])}</b>\nУ цей час одночасно будуть <b>і вода, і світло</b>.`;
+  if(tomorrowData){
+    s+=`\n\n━━━━━━━━━━━━━━\n\n${publicDayBlock('ЗАВТРА',tomorrow,tomorrowData,tomorrowUpdated)}`;
   }
 
-  if(Number(tomorrowCount?.c||0)>=2){
-    s+='\n\n🌅 <b>Графік на завтра вже завантажено</b> — дивіться в боті.';
-  }
-
-  s+='\n\n🔔 <b>Хочете персональне нагадування?</b>\nУ боті можна увімкнути сповіщення перед появою води або перед початком періоду <b>вода + світло</b>.';
+  s+=`\n\n🔔 <b>Хочете персональне нагадування?</b>\nУ боті можна увімкнути сповіщення перед появою води або перед початком періоду <b>вода + світло</b>.`;
   return s;
 }
 
