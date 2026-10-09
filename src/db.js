@@ -19,7 +19,7 @@ export async function ensureSchema(env){
     morning_summary:`ALTER TABLE notification_settings ADD COLUMN morning_summary INTEGER NOT NULL DEFAULT 0`,
     evening_summary:`ALTER TABLE notification_settings ADD COLUMN evening_summary INTEGER NOT NULL DEFAULT 0`
   };
-  for(const [name,sql] of Object.entries(add))if(!have.has(name))await env.DB.prepare(sql).run();
+  for(const [name,sql] of Object.entries(add))if(!have.has(name)){try{await env.DB.prepare(sql).run();}catch(e){if(!String(e).toLowerCase().includes('duplicate column'))throw e;}}
   await env.DB.prepare('INSERT OR IGNORE INTO water_rules(chat_id,fallback_intervals_json) VALUES(?,?)').bind(GLOBAL_SCOPE,JSON.stringify(DEFAULT_WATER)).run();
 }
 
