@@ -24,7 +24,6 @@ export function nowBlock(a,minute,manualWater=null){
 
   let out=`📍 <b>ЗАРАЗ</b>\n${waterLine}\n⚡ Світло 2.2: <b>${s.current.power?'✅ є':'❌ немає'}</b>\n⚡💧 Разом: <b>${actualBoth?'✅ є':'❌ немає'}</b>`;
   if(poss12||poss22){const x=[];if(poss12)x.push('1.2');if(poss22)x.push('2.2');out+=`\n🟡 Зараз діє зона можливого відключення: <b>${x.join(', ')}</b>`;}
-  if(s.next){out+=`\n\n⏭ ${manual?'За графіком ':''}о <b>${fmt(s.next.minute)}</b> ${nextChangeLabel(s.next)}`;}
   return out;
 }
 
