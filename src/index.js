@@ -46,7 +46,7 @@ async function handle(up,env){
   if(text==='🔔 Сповіщення'||text==='/notifications')return notifyMenu(env,chat);
   if(text==='ℹ️ Допомога'||text==='/help')return send(env,chat,'📌 У каналі — короткий актуальний статус.\n🔔 Тут — персональні нагадування, сьогодні/завтра та деталі.\n\nОновлювати графік може тільки адміністратор.',{reply_markup:KB});
   if(/^\/admin$/i.test(text)&&admin)return adminMenu(env,chat);
-  if(/^\/water$/i.test(text)&&admin)return manualWaterMenu(env,chat);
+  if((/^\/water$/i.test(text)||text==='💧 Вода зараз')&&admin)return manualWaterMenu(env,chat);
 
   const waterMessage=/водопостачан|графік\s+води|вода/iu.test(text)&&!/\b1\.2\b|\b2\.2\b/.test(text);
   if(waterMessage){if(!admin)return readOnly(env,chat);const xs=extractIntervals(text);if(xs.length)return previewWater(env,chat,xs,text);}
@@ -134,6 +134,18 @@ async function manualWaterMenu(env,chat,msgId=null){
   return msgId?edit(env,chat,msgId,text,kb):send(env,chat,text,{reply_markup:kb});
 }
 
+async function showPending(env,chat,msgId=null){
+  const row=await env.DB.prepare('SELECT * FROM pending_updates WHERE admin_chat_id=? ORDER BY id DESC LIMIT 1').bind(String(chat)).first();
+  if(!row){
+    const text='🧪 <b>Чернетка</b>\n\nЗараз немає графіка, що очікує публікації.';
+    const kb={inline_keyboard:[[{text:'⬅️ Адмін-панель',callback_data:'adm:home'}]]};
+    return msgId?edit(env,chat,msgId,text,kb):send(env,chat,text,{reply_markup:kb});
+  }
+  const text=`🧪 <b>Чернетка #${row.id}</b>\n\n${row.preview_text||'Попередній перегляд недоступний.'}`;
+  const kb={inline_keyboard:[[{text:'✅ Опублікувати',callback_data:`pub:${row.id}`},{text:'❌ Скасувати',callback_data:`cancel:${row.id}`}],[{text:'⬅️ Адмін-панель',callback_data:'adm:home'}]]};
+  return msgId?edit(env,chat,msgId,text,kb):send(env,chat,text,{reply_markup:kb});
+}
+
 async function systemStatus(env,chat,msgId){const pubs=await env.DB.prepare('SELECT COUNT(*) AS c FROM publications').first(),users=await env.DB.prepare('SELECT COUNT(*) AS c FROM notification_settings').first(),a=await loadDay(env,localNow().date),text=`🩺 <b>Статус системи</b>\n\nБаза D1: ✅\nГрафік сьогодні: ${a?'✅':'❌'}\nПідключених каналів/груп: <b>${pubs?.c||0}</b>\nКористувачів сповіщень: <b>${users?.c||0}</b>\nCron: кожні 5 хв`;return edit(env,chat,msgId,text,{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});}
 async function changesMenu(env,chat,msgId){const rows=await recentChanges(env,5);let s='🧾 <b>Останні зміни</b>\n';if(!rows.length)s+='\nПоки немає.';else for(const r of rows)s+=`\n\n${r.schedule_date?humanDate(r.schedule_date):'Вода'}\n${escapeHtml(r.summary_text).slice(0,700)}`;return edit(env,chat,msgId,s,{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});}
 async function rollbackMenu(env,chat,msgId){const rows=await recentHistory(env,5),kb=rows.map(r=>[{text:`↩️ #${r.id} ${r.schedule_date?humanDate(r.schedule_date):''}`,callback_data:`rb:${r.id}`}]);kb.push([{text:'⬅️ Назад',callback_data:'adm:home'}]);return edit(env,chat,msgId,'↩️ <b>Відкат</b>\nОберіть попередню версію:',{inline_keyboard:kb});}
@@ -143,7 +155,7 @@ async function callback(q,env){
   const chat=String(q.message?.chat?.id||'');if(!chat)return;const admin=isAdminUser(q.from?.id,env);if(q.message?.chat?.type!=='private')return answer(env,q.id);await ensureUser(env,chat);const d=q.data||'';
   if(d.startsWith('pub:')){await answer(env,q.id);if(!admin)return;return publishPending(env,chat,d.split(':')[1]);}
   if(d.startsWith('cancel:')){if(!admin)return answer(env,q.id,'Недоступно');await deletePending(env,d.split(':')[1]);await answer(env,q.id,'Скасовано');return edit(env,chat,q.message.message_id,'❌ Публікацію скасовано.',null);}
-  if(d.startsWith('adm:')){if(!admin){await answer(env,q.id,'Недоступно');return;}await answer(env,q.id);const a=d.split(':')[1];if(a==='home')return adminMenu(env,chat,q.message.message_id);if(a==='water')return manualWaterMenu(env,chat,q.message.message_id);if(a==='update')return edit(env,chat,q.message.message_id,'➕ <b>Оновлення графіка</b>\n\nПросто перешли сюди нове повідомлення з графіком або змінами. Я спочатку покажу попередній перегляд і різницю.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});if(a==='today')return replaceWithDay(env,chat,q.message.message_id,localNow().date);if(a==='tomorrow')return replaceWithDay(env,chat,q.message.message_id,addDays(localNow().date,1));if(a==='pending')return showPending(env,chat);if(a==='changes')return changesMenu(env,chat,q.message.message_id);if(a==='rollback')return rollbackMenu(env,chat,q.message.message_id);if(a==='refresh'){await refreshPublications(env,true);return edit(env,chat,q.message.message_id,'✅ Закріплене табло оновлено.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});}if(a==='status')return systemStatus(env,chat,q.message.message_id);if(a==='auto'){const cur=await getSetting(env,'auto_publish','0');await setSetting(env,'auto_publish',cur==='1'?'0':'1');return adminMenu(env,chat,q.message.message_id);}}
+  if(d.startsWith('adm:')){if(!admin){await answer(env,q.id,'Недоступно');return;}await answer(env,q.id);const a=d.split(':')[1];if(a==='home')return adminMenu(env,chat,q.message.message_id);if(a==='water')return manualWaterMenu(env,chat,q.message.message_id);if(a==='update')return edit(env,chat,q.message.message_id,'➕ <b>Оновлення графіка</b>\n\nПросто перешли сюди нове повідомлення з графіком або змінами. Я спочатку покажу попередній перегляд і різницю.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});if(a==='today')return replaceWithDay(env,chat,q.message.message_id,localNow().date);if(a==='tomorrow')return replaceWithDay(env,chat,q.message.message_id,addDays(localNow().date,1));if(a==='pending')return showPending(env,chat,q.message.message_id);if(a==='changes')return changesMenu(env,chat,q.message.message_id);if(a==='rollback')return rollbackMenu(env,chat,q.message.message_id);if(a==='refresh'){await refreshPublications(env,true);return edit(env,chat,q.message.message_id,'✅ Закріплене табло оновлено.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});}if(a==='status')return systemStatus(env,chat,q.message.message_id);if(a==='auto'){const cur=await getSetting(env,'auto_publish','0');await setSetting(env,'auto_publish',cur==='1'?'0':'1');return adminMenu(env,chat,q.message.message_id);}}
   if(d.startsWith('rb:')){if(!admin)return answer(env,q.id,'Недоступно');await answer(env,q.id);const id=d.split(':')[1];return edit(env,chat,q.message.message_id,`⚠️ Відкотити графік до версії <b>#${id}</b>?`,{inline_keyboard:[[{text:'✅ Так, відкотити',callback_data:`rbc:${id}`},{text:'❌ Ні',callback_data:'adm:rollback'}]]});}
   if(d.startsWith('rbc:')){if(!admin)return;await answer(env,q.id);const id=d.split(':')[1],snap=await restoreHistory(env,id);if(!snap)return edit(env,chat,q.message.message_id,'❌ Версію не знайдено.',null);await refreshPublications(env,true);return edit(env,chat,q.message.message_id,`✅ Відкат виконано для ${humanDate(snap.date)}.`,{inline_keyboard:[[{text:'⬅️ Адмін-панель',callback_data:'adm:home'}]]});}
   if(d.startsWith('water:')){
