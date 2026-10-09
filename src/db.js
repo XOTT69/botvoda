@@ -1,4 +1,4 @@
-import {DEFAULT_WATER,complement,availability} from './lib.js';
+import {DEFAULT_WATER,complement,availability,localNow} from './lib.js';
 
 export const GLOBAL_SCOPE='__GLOBAL__';
 
@@ -37,7 +37,11 @@ export async function getManualWaterStatus(env){
   if(!r)return {state:'auto',updatedAt:null};
   let state=String(r.value||'auto');
   if(!['auto','on','off'].includes(state))state='auto';
-  return {state,updatedAt:r.updated_at||null};
+  if(state!=='auto'&&r.updated_at){
+    const changed=new Date(String(r.updated_at).replace(' ','T')+'Z');
+    if(!Number.isNaN(changed.getTime())&&localNow(changed).date!==localNow().date)state='auto';
+  }
+  return {state,updatedAt:state==='auto'?null:(r.updated_at||null)};
 }
 export async function setManualWaterStatus(env,state){
   if(!['auto','on','off'].includes(state))throw new Error('Invalid manual water state');
