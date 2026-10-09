@@ -77,7 +77,8 @@ async function previewPower(env,chat,p,sourceText){
   if(after)preview+=`\n\n${dayBlock('ПІСЛЯ ОНОВЛЕННЯ',p.date,after,null,true)}`;
   if(warnings.length)preview+=`\n\n⚠️ <b>Перевір перед публікацією</b>\n• ${warnings.map(escapeHtml).join('\n• ')}`;
   const id=await createPending(env,chat,payload,warnings,preview);
-  if(!after)return send(env,chat,preview,{reply_markup:{inline_keyboard:[[{text:'❌ Скасувати',callback_data:`cancel:${id}`}],[{text:'⚙️ Адмін-панель',callback_data:'adm:home'}]]}});
+  const fatal=!after||(p.kind==='full'&&p.items.length<2);
+  if(fatal)return send(env,chat,preview,{reply_markup:{inline_keyboard:[[{text:'❌ Скасувати',callback_data:`cancel:${id}`}],[{text:'⚙️ Адмін-панель',callback_data:'adm:home'}]]}});
   if(auto==='1'&&!warnings.length)return publishPending(env,chat,id,true);
   return send(env,chat,preview,{reply_markup:{inline_keyboard:[[{text:'✅ Опублікувати',callback_data:`pub:${id}`},{text:'❌ Скасувати',callback_data:`cancel:${id}`}],[{text:'⚙️ Адмін-панель',callback_data:'adm:home'}]]}});
 }
