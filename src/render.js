@@ -5,24 +5,46 @@ export function fmtUpdated(ts,tz='Europe/Kyiv'){
   return new Intl.DateTimeFormat('uk-UA',{timeZone:tz,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(d);
 }
 
-export function nowBlock(a,minute,manualWater=null){
+export function nowBlock(a,minute,manualWater=null,powerStatus=null,currentDate=null){
   if(!a)return '⏳ Актуальний графік ще не завантажено.';
   const s=statusAt(a,minute);
-  const manual=manualWater&&['on','off'].includes(manualWater.state)?manualWater:null;
-  const actualWater=manual?manual.state==='on':s.current.water;
-  const actualBoth=actualWater&&s.current.power;
+
+  const manualW=manualWater&&['on','off'].includes(manualWater.state)?manualWater:null;
+  const actualWater=manualW?manualW.state==='on':s.current.water;
+
+  const powerFact=powerStatus&&['on','off'].includes(powerStatus.state)?powerStatus:null;
+  const actualPower=powerFact?powerFact.state==='on':s.current.power;
+  const actualBoth=actualWater&&actualPower;
+
   const poss12=inIntervals(a.possible12||[],minute),poss22=inIntervals(a.possible22||[],minute);
 
   let waterLine;
-  if(manual){
-    const t=manual.updatedLabel?` о ${manual.updatedLabel}`:'';
-    waterLine=`💧 Вода: <b>${actualWater?'✅ є':'❌ немає'}</b> <i>(вручну${t})</i>`;
-    waterLine+=`\n🤖 За графіком: <b>${s.current.water?'✅ є':'❌ немає'}</b>`;
+  if(manualW){
+    const t=manualW.updatedLabel?` о ${manualW.updatedLabel}`:'';
+    waterLine=`💧 Вода: <b>${actualWater?'✅ є':'❌ немає'}</b> <i>(вручну${t})</i>\n🤖 За графіком вода: <b>${s.current.water?'✅ є':'❌ немає'}</b>`;
   }else{
     waterLine=`💧 Вода: <b>${s.current.water?'✅ є':'❌ немає'}</b> <i>(за графіком)</i>`;
   }
 
-  let out=`📍 <b>ЗАРАЗ</b>\n${waterLine}\n⚡ Світло 2.2: <b>${s.current.power?'✅ є':'❌ немає'}</b>\n⚡💧 Разом: <b>${actualBoth?'✅ є':'❌ немає'}</b>`;
+  let powerLine;
+  if(powerFact){
+    let source='фактично';
+    let stamp='';
+    if(powerFact.source==='manual'){
+      source='вручну';
+      stamp=powerFact.updatedLabel?`, ${powerFact.updatedLabel}`:'';
+    }else if(powerFact.source==='channel'){
+      const hm=Number.isFinite(powerFact.eventMinute)?fmt(powerFact.eventMinute):'';
+      const datePart=powerFact.eventDate&&currentDate&&powerFact.eventDate!==currentDate?`${humanDate(powerFact.eventDate).slice(0,5)} `:'';
+      stamp=hm?`, ${datePart}${hm}`:'';
+    }
+    powerLine=`⚡ Світло 2.2: <b>${actualPower?'✅ є':'❌ немає'}</b> <i>(${source}${stamp})</i>`;
+    if(actualPower!==s.current.power)powerLine+=`\n🤖 За графіком світло: <b>${s.current.power?'✅ є':'❌ немає'}</b>`;
+  }else{
+    powerLine=`⚡ Світло 2.2: <b>${s.current.power?'✅ є':'❌ немає'}</b> <i>(за графіком)</i>`;
+  }
+
+  let out=`📍 <b>ЗАРАЗ</b>\n${waterLine}\n${powerLine}\n⚡💧 Разом: <b>${actualBoth?'✅ є':'❌ немає'}</b>`;
   if(poss12||poss22){const x=[];if(poss12)x.push('1.2');if(poss22)x.push('2.2');out+=`\n🟡 Зараз діє зона можливого відключення: <b>${x.join(', ')}</b>`;}
   return out;
 }
@@ -42,8 +64,8 @@ export function dayBlock(label,date,a,updated=null,compact=false){
   return s;
 }
 
-export function publicText(today,tomorrow,todayData,tomorrowData,minute,todayUpdated,tomorrowUpdated,manualWater=null){
-  let s=`📍 <b>Чабани • вода та світло</b>\n\n${nowBlock(todayData,minute,manualWater)}\n\nℹ️ Вода залежить від електропостачання групи <b>1.2</b>. Якщо у 1.2 немає світла — діє резервний графік води.\n\n${dayBlock('СЬОГОДНІ',today,todayData,todayUpdated,true)}`;
+export function publicText(today,tomorrow,todayData,tomorrowData,minute,todayUpdated,tomorrowUpdated,manualWater=null,powerStatus=null){
+  let s=`📍 <b>Чабани • вода та світло</b>\n\n${nowBlock(todayData,minute,manualWater,powerStatus,today)}\n\nℹ️ Вода залежить від електропостачання групи <b>1.2</b>. Якщо у 1.2 немає світла — діє резервний графік води.\n\n${dayBlock('СЬОГОДНІ',today,todayData,todayUpdated,true)}`;
   if(tomorrowData)s+=`\n\n━━━━━━━━━━━━━━\n\n${dayBlock('ЗАВТРА',tomorrow,tomorrowData,tomorrowUpdated,true)}`;
   s+=`\n\n🔔 <b>Персональні нагадування та деталі — у боті.</b>`;
   return s;
