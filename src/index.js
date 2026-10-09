@@ -1,5 +1,5 @@
-import {parsePowerMessage,extractIntervals,normalize,complement,availability,total,formatIntervals,addDays,localNow,humanDate} from './lib.js';
-import {ensureSchema,ensureUser,getSetting,setSetting,getManualWaterStatus,setManualWaterStatus,getWaterIntervals,setWaterIntervals,getRawDay,loadDay,saveHistory,restoreHistory,saveScheduleGroup,createPending,getPending,deletePending,logChange,recentChanges,recentHistory} from './db.js';
+import {parsePowerMessage,extractIntervals,normalize,complement,availability,total,formatIntervals,duration,fmt,addDays,localNow,humanDate} from './lib.js';
+import {ensureSchema,ensureUser,getSetting,setSetting,getManualWaterStatus,setManualWaterStatus,getManualPowerStatus,setManualPowerStatus,recordChannelPowerEvent,getEffectivePowerStatus,getPowerEvents,powerDayStats,getWaterIntervals,setWaterIntervals,getRawDay,loadDay,saveHistory,restoreHistory,saveScheduleGroup,createPending,getPending,deletePending,logChange,recentChanges,recentHistory} from './db.js';
 import {fmtUpdated,nowBlock,dayBlock,diffText} from './render.js';
 import {send,edit,answer,setupWebhook,webhookInfo,webhookSecret} from './telegram.js';
 import {setupGroupPublication,refreshPublications,refreshOnePublication,checkGroupRights} from './publications.js';
@@ -32,6 +32,7 @@ async function handle(up,env){
   if(/^\/id(?:@\w+)?$/i.test(text))return send(env,chat,`🆔 Ваш Telegram ID: <code>${m.from?.id||'невідомо'}</code>`);
 
   if(!privateChat){
+    if(await ingestChannelPowerEvent(env,m,text))return;
     if(/^\/setupgroup(?:@\w+)?$/i.test(text)){if(m.chat.type!=='channel'&&!admin)return send(env,chat,'⛔️ Підключити групу може лише власник бота.');return setupGroupPublication(m,env);}
     if(/^\/refreshgroup(?:@\w+)?$/i.test(text)){if(m.chat.type!=='channel'&&!admin)return send(env,chat,'⛔️ Оновити табло може лише власник бота.');const r=await refreshOnePublication(env,chat,true);return send(env,chat,r?.ok?'✅ Закріплене табло відредаговано.':`❌ Не вдалося відредагувати табло.\n<code>${escapeHtml(r?.error||'невідома помилка')}</code>`);}
     if(/^\/checkgroup(?:@\w+)?$/i.test(text))return checkGroupRights(m,env);
@@ -47,12 +48,47 @@ async function handle(up,env){
   if(text==='ℹ️ Допомога'||text==='/help')return send(env,chat,'📌 У каналі — короткий актуальний статус.\n🔔 Тут — персональні нагадування, сьогодні/завтра та деталі.\n\nОновлювати графік може тільки адміністратор.',{reply_markup:KB});
   if(/^\/admin$/i.test(text)&&admin)return adminMenu(env,chat);
   if((/^\/water$/i.test(text)||text==='💧 Вода зараз')&&admin)return manualWaterMenu(env,chat);
+  if((/^\/power$/i.test(text)||text==='⚡ Світло зараз')&&admin)return manualPowerMenu(env,chat);
 
   const waterMessage=/водопостачан|графік\s+води|вода/iu.test(text)&&!/\b1\.2\b|\b2\.2\b/.test(text);
   if(waterMessage){if(!admin)return readOnly(env,chat);const xs=extractIntervals(text);if(xs.length)return previewWater(env,chat,xs,text);}
   const p=parsePowerMessage(text);
   if(p){if(!admin)return readOnly(env,chat);return previewPower(env,chat,p,text);}
   if(admin&&text.length>20)return send(env,chat,'⚠️ Не вдалося розпізнати графік. Перевір дату та наявність блоків груп 1.2 / 2.2.',{reply_markup:KB});
+}
+
+function parseChannelPowerFact(text='',telegramDate=null){
+  let state=null;
+  if(/світло\s+зникло/iu.test(text))state='off';
+  else if(/світло\s+з[’'ʼ]?явил(?:ось|ося)/iu.test(text))state='on';
+  if(!state)return null;
+
+  const base=localNow(telegramDate?new Date(Number(telegramDate)*1000):new Date(),TZ);
+  const hm=text.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/u);
+  const minute=hm?(Number(hm[1])*60+Number(hm[2])):base.minute;
+  return {state,eventDate:base.date,eventMinute:minute};
+}
+
+async function ingestChannelPowerEvent(env,m,text){
+  if(!text)return false;
+  const fact=parseChannelPowerFact(text,m.date);
+  if(!fact)return false;
+
+  const linked=await env.DB.prepare('SELECT group_chat_id FROM publications WHERE group_chat_id=?').bind(String(m.chat.id)).first();
+  if(!linked)return false;
+
+  await recordChannelPowerEvent(env,{
+    chatId:String(m.chat.id),
+    messageId:Number(m.message_id),
+    state:fact.state,
+    eventDate:fact.eventDate,
+    eventMinute:fact.eventMinute,
+    sourceText:text
+  });
+  const label=fact.state==='on'?'💡 Світло фактично з’явилось':'🔴 Світло фактично зникло';
+  await logChange(env,fact.eventDate,`${label} о ${fmt(fact.eventMinute)}`);
+  await refreshPublications(env,true);
+  return true;
 }
 
 async function readOnly(env,chat){return send(env,chat,'ℹ️ Оновлювати графік може тільки адміністратор. Вам доступні перегляд і персональні нагадування.',{reply_markup:KB});}
@@ -102,15 +138,17 @@ async function publishPending(env,chat,id,auto=false){
   const before=await loadDay(env,payload.date);await saveHistory(env,payload.date,'schedule_update','Перед оновленням графіка');for(const item of payload.items)await saveScheduleGroup(env,payload.date,item.group,item.intervals,item.possibleIntervals||[],payload.sourceText||'');const after=await loadDay(env,payload.date),summary=diffText(before,after,payload.date);await logChange(env,payload.date,summary.replace(/<[^>]+>/g,''));await deletePending(env,id);await refreshPublications(env,true);return send(env,chat,`✅ <b>Опубліковано</b>${auto?' автоматично':''}.\n📌 Закріплене табло синхронізовано.\n\n${summary}`,{reply_markup:KB});
 }
 
-async function showDay(env,chat,date,withNow){const a=await loadDay(env,date);if(!a)return send(env,chat,`📅 <b>${humanDate(date)}</b>\nГрафік ще не завантажено.`,{reply_markup:KB});const now=localNow(),manual=await getManualWaterStatus(env),manualView={...manual,updatedLabel:fmtUpdated(manual?.updatedAt,TZ)};let s=withNow&&date===now.date?`${nowBlock(a,now.minute,manualView)}\n\n`:'';s+=dayBlock(date===now.date?'СЬОГОДНІ':'ЗАВТРА',date,a,fmtUpdated(a.updatedAt,TZ));return send(env,chat,s,{reply_markup:KB});}
+async function showDay(env,chat,date,withNow){const a=await loadDay(env,date);if(!a)return send(env,chat,`📅 <b>${humanDate(date)}</b>\nГрафік ще не завантажено.`,{reply_markup:KB});const now=localNow(),[manual,power]=await Promise.all([getManualWaterStatus(env),getEffectivePowerStatus(env)]),manualView={...manual,updatedLabel:fmtUpdated(manual?.updatedAt,TZ)},powerView={...power,updatedLabel:fmtUpdated(power?.updatedAt,TZ)};let s=withNow&&date===now.date?`${nowBlock(a,now.minute,manualView,powerView,now.date)}\n\n`:'';s+=dayBlock(date===now.date?'СЬОГОДНІ':'ЗАВТРА',date,a,fmtUpdated(a.updatedAt,TZ));return send(env,chat,s,{reply_markup:KB});}
 async function showRaw(env,chat,date){const a=await loadDay(env,date);if(!a)return send(env,chat,'Графік ще не завантажено.',{reply_markup:KB});let s=`📋 <b>${humanDate(date)}</b>\n1.2 відключення: ${formatIntervals(a.off12)}\n2.2 відключення: ${formatIntervals(a.off22)}`;if(a.possible12.length||a.possible22.length)s+=`\n\n🟡 Можливі:\n1.2: ${formatIntervals(a.possible12)}\n2.2: ${formatIntervals(a.possible22)}`;return send(env,chat,s,{reply_markup:KB});}
 
 async function adminMenu(env,chat,msgId=null){
-  const [auto,manual]=await Promise.all([getSetting(env,'auto_publish','0'),getManualWaterStatus(env)]);
-  const waterLabel=manual.state==='on'?'✅ вода є':manual.state==='off'?'❌ води немає':'🤖 за графіком';
-  const text=`👑 <b>Адмін-панель</b>\n\nПублікація: <b>${auto==='1'?'автоматична':'через попередній перегляд'}</b>\n💧 Вода зараз: <b>${waterLabel}</b>\n\nПерешли сюди новий графік — я покажу зміни перед публікацією.`;
+  const [auto,water,power]=await Promise.all([getSetting(env,'auto_publish','0'),getManualWaterStatus(env),getEffectivePowerStatus(env)]);
+  const waterLabel=water.state==='on'?'✅ вода є':water.state==='off'?'❌ води немає':'🤖 за графіком';
+  const powerLabel=power.state==='on'?`✅ світло є (${power.source==='manual'?'вручну':'факт'})`:power.state==='off'?`❌ світла немає (${power.source==='manual'?'вручну':'факт'})`:'🤖 за графіком';
+  const text=`👑 <b>Адмін-панель</b>\n\nПублікація: <b>${auto==='1'?'автоматична':'через попередній перегляд'}</b>\n💧 Вода зараз: <b>${waterLabel}</b>\n⚡ Світло зараз: <b>${powerLabel}</b>\n\nПерешли сюди новий графік — я покажу зміни перед публікацією.`;
   const kb={inline_keyboard:[
-    [{text:'💧 Вода зараз',callback_data:'adm:water'}],
+    [{text:'💧 Вода зараз',callback_data:'adm:water'},{text:'⚡ Світло зараз',callback_data:'adm:power'}],
+    [{text:'📊 Факт світла',callback_data:'adm:powerstats'}],
     [{text:'➕ Оновити графік',callback_data:'adm:update'}],
     [{text:'📅 Сьогодні',callback_data:'adm:today'},{text:'🌅 Завтра',callback_data:'adm:tomorrow'}],
     [{text:'🧪 Чернетка',callback_data:'adm:pending'},{text:'🧾 Останні зміни',callback_data:'adm:changes'}],
@@ -134,6 +172,46 @@ async function manualWaterMenu(env,chat,msgId=null){
   return msgId?edit(env,chat,msgId,text,kb):send(env,chat,text,{reply_markup:kb});
 }
 
+async function manualPowerMenu(env,chat,msgId=null){
+  const power=await getEffectivePowerStatus(env);
+  let label='🤖 <b>За графіком</b>';
+  let detail='';
+  if(power.source==='manual'){
+    label=power.state==='on'?'✅ <b>Світло є — вручну</b>':'❌ <b>Світла немає — вручну</b>';
+    if(power.updatedAt)detail=`\nОновлено вручну: <b>${fmtUpdated(power.updatedAt,TZ)}</b>`;
+  }else if(power.source==='channel'){
+    label=power.state==='on'?'📡 <b>Світло є — факт із каналу</b>':'📡 <b>Світла немає — факт із каналу</b>';
+    detail=`\nОстання фактична подія: <b>${power.eventDate===localNow().date?'':humanDate(power.eventDate)+' • '}${fmt(power.eventMinute)}</b>`;
+  }
+  const text=`⚡ <b>Фактичний стан світла</b>\n\nРежим: ${label}${detail}\n\n<b>Авто</b> означає: спочатку беру останню подію «Світло зникло / Світло з'явилось» із підключеного каналу. Якщо таких подій ще немає — використовую графік 2.2.\n\nРучний стан діє до наступної фактичної події з каналу або доки не натиснеш «Авто».`;
+  const kb={inline_keyboard:[
+    [{text:'⚡ Світло є',callback_data:'power:on'},{text:'🔴 Світла немає',callback_data:'power:off'}],
+    [{text:'📡 Авто: канал → графік',callback_data:'power:auto'}],
+    [{text:'📊 Події сьогодні',callback_data:'adm:powerstats'}],
+    [{text:'⬅️ Адмін-панель',callback_data:'adm:home'}]
+  ]};
+  return msgId?edit(env,chat,msgId,text,kb):send(env,chat,text,{reply_markup:kb});
+}
+
+async function powerStatsMenu(env,chat,msgId=null){
+  const n=localNow();
+  const [stats,events]=await Promise.all([powerDayStats(env,n.date,n.minute),getPowerEvents(env,n.date,12)]);
+  let text=`📊 <b>Фактичне світло • ${humanDate(n.date)}</b>\n`;
+  if(!stats.known){
+    text+='\nПоки немає зафіксованих подій. Після нових повідомлень «Світло зникло / Світло з\'явилось» статистика почне збиратися автоматично.';
+  }else{
+    text+=`\n⚡ Було світло: <b>${duration(stats.onMinutes)}</b>\n🔴 Без світла: <b>${duration(stats.offMinutes)}</b>\n📡 Подій зафіксовано: <b>${events.length}</b>\n\n<b>Останні перемикання:</b>`;
+    for(const e of events.slice(0,8)){
+      const icon=e.state==='on'?'💡':'🔴',verb=e.state==='on'?'з’явилось':'зникло',src=e.source==='manual'?'вручну':'канал';
+      text+=`\n${icon} ${fmt(Number(e.event_minute))} — світло ${verb} <i>(${src})</i>`;
+    }
+    text+='\n\n<i>Статистика рахується за зафіксованими перемиканнями після запуску цієї функції.</i>';
+  }
+  const kb={inline_keyboard:[[{text:'⚡ Керування світлом',callback_data:'adm:power'}],[{text:'⬅️ Адмін-панель',callback_data:'adm:home'}]]};
+  return msgId?edit(env,chat,msgId,text,kb):send(env,chat,text,{reply_markup:kb});
+}
+
+
 async function showPending(env,chat,msgId=null){
   const row=await env.DB.prepare('SELECT * FROM pending_updates WHERE admin_chat_id=? ORDER BY id DESC LIMIT 1').bind(String(chat)).first();
   if(!row){
@@ -155,7 +233,7 @@ async function callback(q,env){
   const chat=String(q.message?.chat?.id||'');if(!chat)return;const admin=isAdminUser(q.from?.id,env);if(q.message?.chat?.type!=='private')return answer(env,q.id);await ensureUser(env,chat);const d=q.data||'';
   if(d.startsWith('pub:')){await answer(env,q.id);if(!admin)return;return publishPending(env,chat,d.split(':')[1]);}
   if(d.startsWith('cancel:')){if(!admin)return answer(env,q.id,'Недоступно');await deletePending(env,d.split(':')[1]);await answer(env,q.id,'Скасовано');return edit(env,chat,q.message.message_id,'❌ Публікацію скасовано.',null);}
-  if(d.startsWith('adm:')){if(!admin){await answer(env,q.id,'Недоступно');return;}await answer(env,q.id);const a=d.split(':')[1];if(a==='home')return adminMenu(env,chat,q.message.message_id);if(a==='water')return manualWaterMenu(env,chat,q.message.message_id);if(a==='update')return edit(env,chat,q.message.message_id,'➕ <b>Оновлення графіка</b>\n\nПросто перешли сюди нове повідомлення з графіком або змінами. Я спочатку покажу попередній перегляд і різницю.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});if(a==='today')return replaceWithDay(env,chat,q.message.message_id,localNow().date);if(a==='tomorrow')return replaceWithDay(env,chat,q.message.message_id,addDays(localNow().date,1));if(a==='pending')return showPending(env,chat,q.message.message_id);if(a==='changes')return changesMenu(env,chat,q.message.message_id);if(a==='rollback')return rollbackMenu(env,chat,q.message.message_id);if(a==='refresh'){await refreshPublications(env,true);return edit(env,chat,q.message.message_id,'✅ Закріплене табло оновлено.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});}if(a==='status')return systemStatus(env,chat,q.message.message_id);if(a==='auto'){const cur=await getSetting(env,'auto_publish','0');await setSetting(env,'auto_publish',cur==='1'?'0':'1');return adminMenu(env,chat,q.message.message_id);}}
+  if(d.startsWith('adm:')){if(!admin){await answer(env,q.id,'Недоступно');return;}await answer(env,q.id);const a=d.split(':')[1];if(a==='home')return adminMenu(env,chat,q.message.message_id);if(a==='water')return manualWaterMenu(env,chat,q.message.message_id);if(a==='power')return manualPowerMenu(env,chat,q.message.message_id);if(a==='powerstats')return powerStatsMenu(env,chat,q.message.message_id);if(a==='update')return edit(env,chat,q.message.message_id,'➕ <b>Оновлення графіка</b>\n\nПросто перешли сюди нове повідомлення з графіком або змінами. Я спочатку покажу попередній перегляд і різницю.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});if(a==='today')return replaceWithDay(env,chat,q.message.message_id,localNow().date);if(a==='tomorrow')return replaceWithDay(env,chat,q.message.message_id,addDays(localNow().date,1));if(a==='pending')return showPending(env,chat,q.message.message_id);if(a==='changes')return changesMenu(env,chat,q.message.message_id);if(a==='rollback')return rollbackMenu(env,chat,q.message.message_id);if(a==='refresh'){await refreshPublications(env,true);return edit(env,chat,q.message.message_id,'✅ Закріплене табло оновлено.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});}if(a==='status')return systemStatus(env,chat,q.message.message_id);if(a==='auto'){const cur=await getSetting(env,'auto_publish','0');await setSetting(env,'auto_publish',cur==='1'?'0':'1');return adminMenu(env,chat,q.message.message_id);}}
   if(d.startsWith('rb:')){if(!admin)return answer(env,q.id,'Недоступно');await answer(env,q.id);const id=d.split(':')[1];return edit(env,chat,q.message.message_id,`⚠️ Відкотити графік до версії <b>#${id}</b>?`,{inline_keyboard:[[{text:'✅ Так, відкотити',callback_data:`rbc:${id}`},{text:'❌ Ні',callback_data:'adm:rollback'}]]});}
   if(d.startsWith('rbc:')){if(!admin)return;await answer(env,q.id);const id=d.split(':')[1],snap=await restoreHistory(env,id);if(!snap)return edit(env,chat,q.message.message_id,'❌ Версію не знайдено.',null);await refreshPublications(env,true);return edit(env,chat,q.message.message_id,`✅ Відкат виконано для ${humanDate(snap.date)}.`,{inline_keyboard:[[{text:'⬅️ Адмін-панель',callback_data:'adm:home'}]]});}
   if(d.startsWith('water:')){
@@ -168,6 +246,17 @@ async function callback(q,env){
     await refreshPublications(env,true);
     await answer(env,q.id,'Оновлено');
     return manualWaterMenu(env,chat,q.message.message_id);
+  }
+  if(d.startsWith('power:')){
+    if(!admin)return answer(env,q.id,'Недоступно');
+    const state=d.split(':')[1];
+    if(!['on','off','auto'].includes(state))return answer(env,q.id,'Невідомий режим');
+    const effective=await setManualPowerStatus(env,state);
+    const label=state==='on'?'⚡ Світло є (вручну)':state==='off'?'🔴 Світла немає (вручну)':effective.source==='channel'?'📡 Авто: використовую останній факт із каналу':'🤖 Авто: використовую графік 2.2';
+    await logChange(env,localNow().date,label);
+    await refreshPublications(env,true);
+    await answer(env,q.id,'Оновлено');
+    return manualPowerMenu(env,chat,q.message.message_id);
   }
   if(d.startsWith('n:')){await answer(env,q.id);return notificationCallback(env,chat,q.message.message_id,d);}
 }
