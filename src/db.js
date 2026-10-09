@@ -9,6 +9,7 @@ export async function ensureSchema(env){
     `CREATE TABLE IF NOT EXISTS schedule_history (id INTEGER PRIMARY KEY AUTOINCREMENT, schedule_date TEXT, snapshot_json TEXT NOT NULL, action TEXT NOT NULL DEFAULT 'update', summary_text TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
     `CREATE TABLE IF NOT EXISTS change_log (id INTEGER PRIMARY KEY AUTOINCREMENT, schedule_date TEXT, summary_text TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
     `CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+    `CREATE TABLE IF NOT EXISTS power_events (id INTEGER PRIMARY KEY AUTOINCREMENT, channel_chat_id TEXT, message_id INTEGER, state TEXT NOT NULL CHECK(state IN ('on','off')), event_date TEXT NOT NULL, event_minute INTEGER NOT NULL, source TEXT NOT NULL DEFAULT 'channel', source_text TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(channel_chat_id,message_id))`,
     `CREATE TABLE IF NOT EXISTS publications (group_chat_id TEXT PRIMARY KEY,message_id INTEGER NOT NULL,bot_username TEXT NOT NULL,group_title TEXT,last_text TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`
   ];
   for(const sql of q)await env.DB.prepare(sql).run();
@@ -47,6 +48,69 @@ export async function setManualWaterStatus(env,state){
   if(!['auto','on','off'].includes(state))throw new Error('Invalid manual water state');
   await setSetting(env,'manual_water_state',state);
   return getManualWaterStatus(env);
+}
+
+export async function getManualPowerStatus(env){
+  const r=await env.DB.prepare("SELECT value,updated_at FROM app_settings WHERE key='manual_power_state'").first();
+  if(!r)return {state:'auto',updatedAt:null};
+  let state=String(r.value||'auto');
+  if(!['auto','on','off'].includes(state))state='auto';
+  return {state,updatedAt:state==='auto'?null:(r.updated_at||null)};
+}
+
+export async function setManualPowerStatus(env,state){
+  if(!['auto','on','off'].includes(state))throw new Error('Invalid manual power state');
+  await setSetting(env,'manual_power_state',state);
+  if(state!=='auto'){
+    const n=localNow();
+    await env.DB.prepare("INSERT INTO power_events(channel_chat_id,message_id,state,event_date,event_minute,source,source_text) VALUES(NULL,NULL,?,?,?,?,?)")
+      .bind(state,n.date,n.minute,'manual','manual override').run();
+  }
+  return getEffectivePowerStatus(env);
+}
+
+export async function recordChannelPowerEvent(env,{chatId,messageId,state,eventDate,eventMinute,sourceText=''}) {
+  if(!['on','off'].includes(state))return false;
+  await env.DB.prepare(`INSERT INTO power_events(channel_chat_id,message_id,state,event_date,event_minute,source,source_text)
+    VALUES(?,?,?,?,?,'channel',?)
+    ON CONFLICT(channel_chat_id,message_id) DO UPDATE SET
+      state=excluded.state,event_date=excluded.event_date,event_minute=excluded.event_minute,source_text=excluded.source_text`)
+    .bind(String(chatId),Number(messageId),state,eventDate,Number(eventMinute),sourceText).run();
+  await setSetting(env,'manual_power_state','auto');
+  return true;
+}
+
+export async function getLatestChannelPowerEvent(env){
+  return env.DB.prepare("SELECT * FROM power_events WHERE source='channel' ORDER BY event_date DESC,event_minute DESC,id DESC LIMIT 1").first();
+}
+
+export async function getEffectivePowerStatus(env){
+  const manual=await getManualPowerStatus(env);
+  if(manual.state==='on'||manual.state==='off')return {state:manual.state,source:'manual',updatedAt:manual.updatedAt};
+  const e=await getLatestChannelPowerEvent(env);
+  if(e)return {state:e.state,source:'channel',eventDate:e.event_date,eventMinute:Number(e.event_minute),channelChatId:e.channel_chat_id,messageId:e.message_id,updatedAt:e.created_at};
+  return {state:null,source:'schedule',updatedAt:null};
+}
+
+export async function getPowerEvents(env,date,limit=30){
+  const r=await env.DB.prepare("SELECT id,state,event_date,event_minute,source,source_text,created_at FROM power_events WHERE event_date=? ORDER BY event_minute DESC,id DESC LIMIT ?").bind(date,limit).all();
+  return r.results||[];
+}
+
+export async function powerDayStats(env,date,untilMinute=1440){
+  const events=await getPowerEvents(env,date,200);
+  if(!events.length)return {known:false,onMinutes:0,offMinutes:0,events:[]};
+  const ordered=[...events].sort((a,b)=>a.event_minute-b.event_minute||a.id-b.id);
+  let state=ordered[0].state==='on'?'off':'on';
+  let cursor=0,onMinutes=0,offMinutes=0;
+  for(const e of ordered){
+    const m=Math.max(cursor,Math.min(Number(e.event_minute),untilMinute));
+    if(state==='on')onMinutes+=m-cursor;else offMinutes+=m-cursor;
+    cursor=m;state=e.state;
+    if(cursor>=untilMinute)break;
+  }
+  if(cursor<untilMinute){if(state==='on')onMinutes+=untilMinute-cursor;else offMinutes+=untilMinute-cursor;}
+  return {known:true,onMinutes,offMinutes,events:ordered,currentState:state};
 }
 
 export async function getWaterIntervals(env){const w=await env.DB.prepare('SELECT fallback_intervals_json FROM water_rules WHERE chat_id=?').bind(GLOBAL_SCOPE).first();return w?JSON.parse(w.fallback_intervals_json):DEFAULT_WATER;}
