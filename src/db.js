@@ -32,6 +32,19 @@ export async function ensureUser(env,chatId){
 export async function getSetting(env,key,def=null){const r=await env.DB.prepare('SELECT value FROM app_settings WHERE key=?').bind(key).first();return r?.value??def;}
 export async function setSetting(env,key,value){await env.DB.prepare('INSERT INTO app_settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP').bind(key,String(value)).run();}
 
+export async function getManualWaterStatus(env){
+  const r=await env.DB.prepare("SELECT value,updated_at FROM app_settings WHERE key='manual_water_state'").first();
+  if(!r)return {state:'auto',updatedAt:null};
+  let state=String(r.value||'auto');
+  if(!['auto','on','off'].includes(state))state='auto';
+  return {state,updatedAt:r.updated_at||null};
+}
+export async function setManualWaterStatus(env,state){
+  if(!['auto','on','off'].includes(state))throw new Error('Invalid manual water state');
+  await setSetting(env,'manual_water_state',state);
+  return getManualWaterStatus(env);
+}
+
 export async function getWaterIntervals(env){const w=await env.DB.prepare('SELECT fallback_intervals_json FROM water_rules WHERE chat_id=?').bind(GLOBAL_SCOPE).first();return w?JSON.parse(w.fallback_intervals_json):DEFAULT_WATER;}
 export async function setWaterIntervals(env,intervals,sourceText=''){await env.DB.prepare('INSERT INTO water_rules(chat_id,fallback_intervals_json,source_text) VALUES(?,?,?) ON CONFLICT(chat_id) DO UPDATE SET fallback_intervals_json=excluded.fallback_intervals_json,source_text=excluded.source_text,updated_at=CURRENT_TIMESTAMP').bind(GLOBAL_SCOPE,JSON.stringify(intervals),sourceText).run();}
 
