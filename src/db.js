@@ -47,10 +47,11 @@ export async function loadDay(env,date){
   await ensureSchema(env);
   const {rows,possible}=await getRawDay(env,date);
   if(!rows['1.2']||!rows['2.2'])return null;
-  const fallback=await getWaterIntervals(env);
+  const waterRow=await env.DB.prepare('SELECT fallback_intervals_json,updated_at FROM water_rules WHERE chat_id=?').bind(GLOBAL_SCOPE).first();
+  const fallback=waterRow?JSON.parse(waterRow.fallback_intervals_json):DEFAULT_WATER;
   const p12=complement(rows['1.2'].intervals),p22=complement(rows['2.2'].intervals);
   const a=availability(p12,p22,fallback);
-  return {...a,p12,p22,off12:rows['1.2'].intervals,off22:rows['2.2'].intervals,possible12:possible['1.2']||[],possible22:possible['2.2']||[],updatedAt:[rows['1.2'].created_at,rows['2.2'].created_at].filter(Boolean).sort().at(-1)||null};
+  return {...a,p12,p22,off12:rows['1.2'].intervals,off22:rows['2.2'].intervals,possible12:possible['1.2']||[],possible22:possible['2.2']||[],updatedAt:[rows['1.2'].created_at,rows['2.2'].created_at,waterRow?.updated_at].filter(Boolean).sort().at(-1)||null};
 }
 
 export async function snapshotDate(env,date){
@@ -67,12 +68,19 @@ export async function saveHistory(env,date,action,summary=''){
 export async function restoreHistory(env,id){
   const row=await env.DB.prepare('SELECT * FROM schedule_history WHERE id=?').bind(id).first();if(!row)return null;
   const snap=JSON.parse(row.snapshot_json);const date=snap.date;
-  await saveHistory(env,date,'before_rollback','Стан перед відкатом');
-  for(const g of ['1.2','2.2']){
-    if(snap.groups[g])await saveScheduleGroup(env,date,g,snap.groups[g],snap.possible?.[g]||[],'rollback');
-    else {await env.DB.prepare('DELETE FROM schedules WHERE chat_id=? AND schedule_date=? AND group_name=?').bind(GLOBAL_SCOPE,date,g).run();await env.DB.prepare('DELETE FROM schedule_possible WHERE schedule_date=? AND group_name=?').bind(date,g).run();}
+  const waterOnly=row.action==='water_update'||row.action==='before_water_rollback';
+
+  if(waterOnly){
+    await saveHistory(env,date,'before_water_rollback','Стан води перед відкатом');
+    if(snap.water)await setWaterIntervals(env,snap.water,'rollback');
+  }else{
+    await saveHistory(env,date,'before_schedule_rollback','Стан графіка перед відкатом');
+    for(const g of ['1.2','2.2']){
+      if(snap.groups[g])await saveScheduleGroup(env,date,g,snap.groups[g],snap.possible?.[g]||[],'rollback');
+      else {await env.DB.prepare('DELETE FROM schedules WHERE chat_id=? AND schedule_date=? AND group_name=?').bind(GLOBAL_SCOPE,date,g).run();await env.DB.prepare('DELETE FROM schedule_possible WHERE schedule_date=? AND group_name=?').bind(date,g).run();}
+    }
   }
-  if(snap.water)await setWaterIntervals(env,snap.water,'rollback');
+
   await env.DB.prepare('INSERT INTO change_log(schedule_date,summary_text) VALUES(?,?)').bind(date,`↩️ Виконано відкат до версії #${id}`).run();
   return snap;
 }
