@@ -1,0 +1,9 @@
+export async function tg(env,method,payload){const r=await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});if(!r.ok)console.log(method,await r.clone().text());return r;}
+export async function safeJson(r){try{return await r.json()}catch{return null}}
+export const send=(env,chat,text,opt={})=>tg(env,'sendMessage',{chat_id:chat,text,parse_mode:'HTML',disable_web_page_preview:true,...opt});
+export const edit=(env,chat,msgId,text,kb)=>tg(env,'editMessageText',{chat_id:chat,message_id:msgId,text,parse_mode:'HTML',disable_web_page_preview:true,...(kb===undefined?{}:{reply_markup:kb||{inline_keyboard:[]}})});
+export const answer=(env,id,text)=>tg(env,'answerCallbackQuery',{callback_query_id:id,...(text?{text}:{})});
+export const json=(v,status=200)=>new Response(JSON.stringify(v,null,2),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
+export async function webhookSecret(env){const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(env.TELEGRAM_WEBHOOK_SECRET||''));return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');}
+export async function setupWebhook(u,env){if(!env.TELEGRAM_BOT_TOKEN||!env.TELEGRAM_WEBHOOK_SECRET)return json({ok:false,error:'Missing Telegram secrets'},500);const r=await tg(env,'setWebhook',{url:`${u.origin}/telegram`,secret_token:await webhookSecret(env),allowed_updates:['message','channel_post','callback_query'],drop_pending_updates:false});const body=await safeJson(r);return json({ok:r.ok&&body?.ok,webhook_url:`${u.origin}/telegram`,telegram:body},r.ok&&body?.ok?200:502);}
+export async function webhookInfo(env){const r=await tg(env,'getWebhookInfo',{});return json(await safeJson(r),r.ok?200:502);}
