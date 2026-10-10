@@ -135,22 +135,40 @@ export function nextChangeLabel(next){
   return 'зміниться графік';
 }
 
-export function buildEvents(a,settings,date){
+export function buildEvents(a,settings,date,nextDay=null){
   const ev=[];
   const add=(key,minute,text)=>{if(minute>=0&&minute<=DAY)ev.push({key:`${date}:${key}`,minute,text})};
   const lead=Number(settings.lead_minutes||30);
   const minWindow=Number(settings.min_window_minutes||0);
+
+  const continuation=(kind,e)=>{
+    if(e!==DAY||!nextDay)return null;
+    const xs=normalize(nextDay[kind]||[]);
+    const first=xs.find(([s])=>s===0);
+    return first?first[1]:null;
+  };
+  const spanText=(s,e,nextEnd)=>{
+    if(nextEnd!=null)return `${fmt(s)}–${fmt(nextEnd)} наступного дня`;
+    return `${fmt(s)}–${fmt(e)}`;
+  };
+  const spanDuration=(s,e,nextEnd)=>nextEnd!=null?(DAY-s)+nextEnd:e-s;
+
   if(settings.both_alerts){
     for(const [s,e] of a.both){
-      if(e-s<minWindow)continue;
-      add(`both-start-${s}`,s-lead,`⚡💧 Через ${lead} хв почнеться період вода + світло\n${fmt(s)}–${fmt(e)} · ${duration(e-s)}`);
-      if(settings.end_alerts)add(`both-end-${e}`,e-lead,`⚠️ Через ${lead} хв завершиться період вода + світло (${fmt(e)})`);
+      const nextEnd=continuation('both',e);
+      const len=spanDuration(s,e,nextEnd);
+      if(len<minWindow)continue;
+      add(`both-start-${s}`,s-lead,`⚡💧 Через ${lead} хв почнеться період вода + світло\n${spanText(s,e,nextEnd)} · ${duration(len)}`);
+      if(settings.end_alerts&&!nextEnd)add(`both-end-${e}`,e-lead,`⚠️ Через ${lead} хв завершиться період вода + світло (${fmt(e)})`);
     }
   }
+
   if(settings.water_alerts){
     for(const [s,e] of a.water){
-      if(e-s<minWindow)continue;
-      if(!a.both.some(([bs])=>bs===s))add(`water-start-${s}`,s-lead,`💧 Через ${lead} хв буде вода\n${fmt(s)}–${fmt(e)} · ${duration(e-s)}`);
+      const nextEnd=continuation('water',e);
+      const len=spanDuration(s,e,nextEnd);
+      if(len<minWindow)continue;
+      if(!a.both.some(([bs])=>bs===s))add(`water-start-${s}`,s-lead,`💧 Через ${lead} хв буде вода\n${spanText(s,e,nextEnd)} · ${duration(len)}`);
     }
   }
   return ev;
