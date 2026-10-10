@@ -1,5 +1,5 @@
 import {parsePowerMessage,extractIntervals,normalize,complement,availability,total,formatIntervals,duration,fmt,addDays,localNow,humanDate} from './lib.js';
-import {ensureSchema,ensureUser,getSetting,setSetting,getManualWaterStatus,setManualWaterStatus,getManualPowerStatus,setManualPowerStatus,recordChannelPowerEvent,getEffectivePowerStatus,getPowerEvents,powerDayStats,getWaterIntervals,setWaterIntervals,getRawDay,loadDay,saveHistory,restoreHistory,saveScheduleGroup,createPending,getPending,deletePending,logChange,recentChanges,recentHistory} from './db.js';
+import {ensureSchema,ensureUser,getSetting,setSetting,getManualWaterStatus,setManualWaterStatus,getManualPowerStatus,setManualPowerStatus,recordChannelPowerEvent,getEffectivePowerStatus,getPowerEvents,powerDayStats,getWaterIntervals,setWaterIntervals,getRawDay,loadDay,saveHistory,restoreHistory,saveScheduleGroup,createPending,getPending,deletePending,logChange,recentChanges,recentHistory,trackUserProfile,markNotificationsTouched,analyticsOverview,analyticsUsers,analyticsActivity} from './db.js';
 import {fmtUpdated,nowBlock,dayBlock,diffText} from './render.js';
 import {send,edit,answer,setupWebhook,webhookInfo,webhookSecret} from './telegram.js';
 import {setupGroupPublication,refreshPublications,refreshOnePublication,checkGroupRights} from './publications.js';
@@ -40,13 +40,17 @@ async function handle(up,env){
   }
 
   await ensureUser(env,chat);
+  const startMatch=text.match(/^\/start(?:@\w+)?(?:\s+(\S+))?/i);
+  const startSource=startMatch?(startMatch[1]==='chabany'?'chabany':'direct'):null;
+  await trackUserProfile(env,m.from,startSource);
   if(text.startsWith('/start')){const x=admin?'\n\n👑 Для керування: /admin':'';return send(env,chat,'💧⚡ <b>Чабани: вода + світло</b>\n\nВода залежить від групи <b>1.2</b>. Ваше світло — група <b>2.2</b>.\nТут можна дивитися актуальний графік і налаштовувати персональні нагадування.'+x,{reply_markup:KB});}
   if(text==='📅 Сьогодні'||text==='/today')return showDay(env,chat,localNow().date,true);
   if(text==='🌅 Завтра'||text==='/tomorrow')return showDay(env,chat,addDays(localNow().date,1),false);
   if(text==='📋 Графік'||text==='/schedule')return showRaw(env,chat,localNow().date);
-  if(text==='🔔 Сповіщення'||text==='/notifications')return notifyMenu(env,chat);
+  if(text==='🔔 Сповіщення'||text==='/notifications'){await markNotificationsTouched(env,chat);return notifyMenu(env,chat);}
   if(text==='ℹ️ Допомога'||text==='/help')return send(env,chat,'📌 У каналі — короткий актуальний статус.\n🔔 Тут — персональні нагадування, сьогодні/завтра та деталі.\n\nОновлювати графік може тільки адміністратор.',{reply_markup:KB});
   if(/^\/admin$/i.test(text)&&admin)return adminMenu(env,chat);
+  if(/^\/analytics$/i.test(text))return admin?analyticsHome(env,chat):send(env,chat,'⛔️ Команда недоступна.');
   if((/^\/water$/i.test(text)||text==='💧 Вода зараз')&&admin)return manualWaterMenu(env,chat);
   if((/^\/power$/i.test(text)||text==='⚡ Світло зараз')&&admin)return manualPowerMenu(env,chat);
 
@@ -148,7 +152,7 @@ async function adminMenu(env,chat,msgId=null){
   const text=`👑 <b>Адмін-панель</b>\n\nПублікація: <b>${auto==='1'?'автоматична':'через попередній перегляд'}</b>\n💧 Вода зараз: <b>${waterLabel}</b>\n⚡ Світло зараз: <b>${powerLabel}</b>\n\nПерешли сюди новий графік — я покажу зміни перед публікацією.`;
   const kb={inline_keyboard:[
     [{text:'💧 Вода зараз',callback_data:'adm:water'},{text:'⚡ Світло зараз',callback_data:'adm:power'}],
-    [{text:'📊 Факт світла',callback_data:'adm:powerstats'}],
+    [{text:'📊 Аналітика',callback_data:'adm:analytics'},{text:'📊 Факт світла',callback_data:'adm:powerstats'}],
     [{text:'➕ Оновити графік',callback_data:'adm:update'}],
     [{text:'📅 Сьогодні',callback_data:'adm:today'},{text:'🌅 Завтра',callback_data:'adm:tomorrow'}],
     [{text:'🧪 Чернетка',callback_data:'adm:pending'},{text:'🧾 Останні зміни',callback_data:'adm:changes'}],
@@ -212,6 +216,70 @@ async function powerStatsMenu(env,chat,msgId=null){
 }
 
 
+function analyticsDateStart(daysBack){
+  return addDays(localNow().date,-daysBack);
+}
+function sourceLabel(s){
+  return s==='chabany'?'📍 канал':s==='direct'?'🔗 напряму':'❔ старий/невідомо';
+}
+function userDisplay(u){
+  const name=[u.first_name,u.last_name].filter(Boolean).join(' ').trim();
+  const who=name?escapeHtml(name):`ID <code>${escapeHtml(u.chat_id)}</code>`;
+  const username=u.username?` @${escapeHtml(u.username)}`:'';
+  return `${who}${username}`;
+}
+async function analyticsHome(env,chat,msgId=null){
+  const n=localNow(),start7=analyticsDateStart(6),start30=analyticsDateStart(29);
+  const a=await analyticsOverview(env,env.ADMIN_TELEGRAM_ID,n.date,start7,start30);
+  const p=a.profile||{},r=a.reminders||{},s=a.sent||{};
+  const text=`📊 <b>Аналітика бота</b>\n\n👥 Користувачів: <b>${Number(p.total||0)}</b>\n🆕 Нових: сьогодні <b>${Number(p.new_today||0)}</b> · 7 днів <b>${Number(p.new_7||0)}</b> · 30 днів <b>${Number(p.new_30||0)}</b>\n🟢 Активні: сьогодні <b>${Number(p.active_today||0)}</b> · 7 днів <b>${Number(p.active_7||0)}</b> · 30 днів <b>${Number(p.active_30||0)}</b>\n\n📍 Прийшли з каналу: <b>${Number(p.from_channel||0)}</b>\n🔗 Напряму: <b>${Number(p.direct||0)}</b>\n❔ Старі/невідоме джерело: <b>${Number(p.unknown_source||0)}</b>\n\n🔔 Активні нагадування: <b>${Number(r.active_any||0)}</b>\n⚙️ Відкривали налаштування нагадувань: <b>${Number(p.touched_notifications||0)}</b>\n📨 Відправлено нагадувань: <b>${Number(s.total_sent||0)}</b> · сьогодні <b>${Number(s.sent_today||0)}</b>\n\n<i>Ім’я та @username старих користувачів підтягнуться, коли вони знову відкриють або використають бота.</i>`;
+  const kb={inline_keyboard:[
+    [{text:'👥 Користувачі',callback_data:'ana:users:0'},{text:'🔔 Нагадування',callback_data:'ana:reminders'}],
+    [{text:'📅 Активність 7 днів',callback_data:'ana:activity'}],
+    [{text:'⬅️ Адмін-панель',callback_data:'adm:home'}]
+  ]};
+  return msgId?edit(env,chat,msgId,text,kb):send(env,chat,text,{reply_markup:kb});
+}
+
+async function analyticsUsersMenu(env,chat,msgId,offset=0){
+  const limit=8,data=await analyticsUsers(env,env.ADMIN_TELEGRAM_ID,limit,Math.max(0,offset));
+  let text=`👥 <b>Користувачі</b> — ${data.total}\n`;
+  if(!data.users.length)text+='\nНемає користувачів.';
+  data.users.forEach((u,i)=>{
+    const alerts=[];
+    if(Number(u.water_alerts))alerts.push('💧');
+    if(Number(u.both_alerts))alerts.push('⚡💧');
+    if(Number(u.morning_summary))alerts.push('🌅');
+    if(Number(u.evening_summary))alerts.push('🌙');
+    const seen=u.last_seen_date?`${humanDate(u.last_seen_date)} ${Number.isFinite(Number(u.last_seen_minute))?fmt(Number(u.last_seen_minute)):''}`:'—';
+    text+=`\n\n<b>${offset+i+1}.</b> ${userDisplay(u)}\n   ${sourceLabel(u.source)} · 🔔 ${alerts.length?alerts.join(' '):'вимкнено'}${u.lead_minutes?` · ${u.lead_minutes} хв`:''}\n   🕒 ${seen}`;
+  });
+  const nav=[];
+  if(offset>0)nav.push({text:'⬅️',callback_data:`ana:users:${Math.max(0,offset-limit)}`});
+  if(offset+limit<data.total)nav.push({text:'➡️',callback_data:`ana:users:${offset+limit}`});
+  const kb={inline_keyboard:[...(nav.length?[nav]:[]),[{text:'📊 Огляд',callback_data:'ana:home'}],[{text:'⬅️ Адмін-панель',callback_data:'adm:home'}]]};
+  return edit(env,chat,msgId,text,kb);
+}
+
+async function analyticsRemindersMenu(env,chat,msgId){
+  const n=localNow(),a=await analyticsOverview(env,env.ADMIN_TELEGRAM_ID,n.date,analyticsDateStart(6),analyticsDateStart(29));
+  const r=a.reminders||{},s=a.sent||{};
+  const text=`🔔 <b>Аналітика нагадувань</b>\n\n✅ Хоч одне активне: <b>${Number(r.active_any||0)}</b>\n💧 Вода: <b>${Number(r.water_on||0)}</b>\n⚡💧 Вода + світло: <b>${Number(r.both_on||0)}</b>\n⚠️ Перед завершенням: <b>${Number(r.end_on||0)}</b>\n🌅 Ранкове зведення: <b>${Number(r.morning_on||0)}</b>\n🌙 Графік на завтра: <b>${Number(r.evening_on||0)}</b>\n\n⏱ <b>Попередження</b>\n15 хв — <b>${Number(r.lead15||0)}</b>\n30 хв — <b>${Number(r.lead30||0)}</b>\n60 хв — <b>${Number(r.lead60||0)}</b>\n\n📨 Відправлено: всього <b>${Number(s.total_sent||0)}</b> · сьогодні <b>${Number(s.sent_today||0)}</b> · 7 днів <b>${Number(s.sent_7||0)}</b>`;
+  return edit(env,chat,msgId,text,{inline_keyboard:[[{text:'📊 Огляд',callback_data:'ana:home'}],[{text:'⬅️ Адмін-панель',callback_data:'adm:home'}]]});
+}
+
+async function analyticsActivityMenu(env,chat,msgId){
+  const start=analyticsDateStart(6),data=await analyticsActivity(env,env.ADMIN_TELEGRAM_ID,start);
+  const n=localNow(),newMap=Object.fromEntries(data.newByDay.map(x=>[x.day,Number(x.c)])),actMap=Object.fromEntries(data.activeByDay.map(x=>[x.day,Number(x.c)]));
+  let text='📅 <b>Активність за 7 днів</b>\n\n';
+  for(let i=6;i>=0;i--){
+    const d=addDays(n.date,-i);
+    text+=`${humanDate(d).slice(0,5)}  🆕 <b>${newMap[d]||0}</b> · 🟢 <b>${actMap[d]||0}</b>\n`;
+  }
+  text+='\n🆕 — нові користувачі\n🟢 — взаємодіяли з ботом цього дня';
+  return edit(env,chat,msgId,text,{inline_keyboard:[[{text:'📊 Огляд',callback_data:'ana:home'}],[{text:'⬅️ Адмін-панель',callback_data:'adm:home'}]]});
+}
+
 async function showPending(env,chat,msgId=null){
   const row=await env.DB.prepare('SELECT * FROM pending_updates WHERE admin_chat_id=? ORDER BY id DESC LIMIT 1').bind(String(chat)).first();
   if(!row){
@@ -230,10 +298,10 @@ async function rollbackMenu(env,chat,msgId){const rows=await recentHistory(env,5
 async function replaceWithDay(env,chat,msgId,date){const a=await loadDay(env,date),text=a?dayBlock(date===localNow().date?'СЬОГОДНІ':'ЗАВТРА',date,a,fmtUpdated(a.updatedAt,TZ)):`📅 ${humanDate(date)}\nГрафік ще не завантажено.`;return edit(env,chat,msgId,text,{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});}
 
 async function callback(q,env){
-  const chat=String(q.message?.chat?.id||'');if(!chat)return;const admin=isAdminUser(q.from?.id,env);if(q.message?.chat?.type!=='private')return answer(env,q.id);await ensureUser(env,chat);const d=q.data||'';
+  const chat=String(q.message?.chat?.id||'');if(!chat)return;const admin=isAdminUser(q.from?.id,env);if(q.message?.chat?.type!=='private')return answer(env,q.id);await ensureUser(env,chat);await trackUserProfile(env,q.from,null);const d=q.data||'';
   if(d.startsWith('pub:')){await answer(env,q.id);if(!admin)return;return publishPending(env,chat,d.split(':')[1]);}
   if(d.startsWith('cancel:')){if(!admin)return answer(env,q.id,'Недоступно');await deletePending(env,d.split(':')[1]);await answer(env,q.id,'Скасовано');return edit(env,chat,q.message.message_id,'❌ Публікацію скасовано.',null);}
-  if(d.startsWith('adm:')){if(!admin){await answer(env,q.id,'Недоступно');return;}await answer(env,q.id);const a=d.split(':')[1];if(a==='home')return adminMenu(env,chat,q.message.message_id);if(a==='water')return manualWaterMenu(env,chat,q.message.message_id);if(a==='power')return manualPowerMenu(env,chat,q.message.message_id);if(a==='powerstats')return powerStatsMenu(env,chat,q.message.message_id);if(a==='update')return edit(env,chat,q.message.message_id,'➕ <b>Оновлення графіка</b>\n\nПросто перешли сюди нове повідомлення з графіком або змінами. Я спочатку покажу попередній перегляд і різницю.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});if(a==='today')return replaceWithDay(env,chat,q.message.message_id,localNow().date);if(a==='tomorrow')return replaceWithDay(env,chat,q.message.message_id,addDays(localNow().date,1));if(a==='pending')return showPending(env,chat,q.message.message_id);if(a==='changes')return changesMenu(env,chat,q.message.message_id);if(a==='rollback')return rollbackMenu(env,chat,q.message.message_id);if(a==='refresh'){await refreshPublications(env,true);return edit(env,chat,q.message.message_id,'✅ Закріплене табло оновлено.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});}if(a==='status')return systemStatus(env,chat,q.message.message_id);if(a==='auto'){const cur=await getSetting(env,'auto_publish','0');await setSetting(env,'auto_publish',cur==='1'?'0':'1');return adminMenu(env,chat,q.message.message_id);}}
+  if(d.startsWith('adm:')){if(!admin){await answer(env,q.id,'Недоступно');return;}await answer(env,q.id);const a=d.split(':')[1];if(a==='home')return adminMenu(env,chat,q.message.message_id);if(a==='water')return manualWaterMenu(env,chat,q.message.message_id);if(a==='power')return manualPowerMenu(env,chat,q.message.message_id);if(a==='powerstats')return powerStatsMenu(env,chat,q.message.message_id);if(a==='analytics')return analyticsHome(env,chat,q.message.message_id);if(a==='update')return edit(env,chat,q.message.message_id,'➕ <b>Оновлення графіка</b>\n\nПросто перешли сюди нове повідомлення з графіком або змінами. Я спочатку покажу попередній перегляд і різницю.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});if(a==='today')return replaceWithDay(env,chat,q.message.message_id,localNow().date);if(a==='tomorrow')return replaceWithDay(env,chat,q.message.message_id,addDays(localNow().date,1));if(a==='pending')return showPending(env,chat,q.message.message_id);if(a==='changes')return changesMenu(env,chat,q.message.message_id);if(a==='rollback')return rollbackMenu(env,chat,q.message.message_id);if(a==='refresh'){await refreshPublications(env,true);return edit(env,chat,q.message.message_id,'✅ Закріплене табло оновлено.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});}if(a==='status')return systemStatus(env,chat,q.message.message_id);if(a==='auto'){const cur=await getSetting(env,'auto_publish','0');await setSetting(env,'auto_publish',cur==='1'?'0':'1');return adminMenu(env,chat,q.message.message_id);}}
   if(d.startsWith('rb:')){if(!admin)return answer(env,q.id,'Недоступно');await answer(env,q.id);const id=d.split(':')[1];return edit(env,chat,q.message.message_id,`⚠️ Відкотити графік до версії <b>#${id}</b>?`,{inline_keyboard:[[{text:'✅ Так, відкотити',callback_data:`rbc:${id}`},{text:'❌ Ні',callback_data:'adm:rollback'}]]});}
   if(d.startsWith('rbc:')){if(!admin)return;await answer(env,q.id);const id=d.split(':')[1],snap=await restoreHistory(env,id);if(!snap)return edit(env,chat,q.message.message_id,'❌ Версію не знайдено.',null);await refreshPublications(env,true);return edit(env,chat,q.message.message_id,`✅ Відкат виконано для ${humanDate(snap.date)}.`,{inline_keyboard:[[{text:'⬅️ Адмін-панель',callback_data:'adm:home'}]]});}
   if(d.startsWith('water:')){
@@ -258,5 +326,14 @@ async function callback(q,env){
     await answer(env,q.id,'Оновлено');
     return manualPowerMenu(env,chat,q.message.message_id);
   }
-  if(d.startsWith('n:')){await answer(env,q.id);return notificationCallback(env,chat,q.message.message_id,d);}
+  if(d.startsWith('ana:')){
+    if(!admin)return answer(env,q.id,'Недоступно');
+    await answer(env,q.id);
+    const parts=d.split(':');
+    if(parts[1]==='home')return analyticsHome(env,chat,q.message.message_id);
+    if(parts[1]==='users')return analyticsUsersMenu(env,chat,q.message.message_id,Number(parts[2]||0));
+    if(parts[1]==='reminders')return analyticsRemindersMenu(env,chat,q.message.message_id);
+    if(parts[1]==='activity')return analyticsActivityMenu(env,chat,q.message.message_id);
+  }
+  if(d.startsWith('n:')){await markNotificationsTouched(env,chat);await answer(env,q.id);return notificationCallback(env,chat,q.message.message_id,d);}
 }

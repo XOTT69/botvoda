@@ -10,6 +10,21 @@ export async function ensureSchema(env){
     `CREATE TABLE IF NOT EXISTS change_log (id INTEGER PRIMARY KEY AUTOINCREMENT, schedule_date TEXT, summary_text TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
     `CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
     `CREATE TABLE IF NOT EXISTS power_events (id INTEGER PRIMARY KEY AUTOINCREMENT, channel_chat_id TEXT, message_id INTEGER, state TEXT NOT NULL CHECK(state IN ('on','off')), event_date TEXT NOT NULL, event_minute INTEGER NOT NULL, source TEXT NOT NULL DEFAULT 'channel', source_text TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(channel_chat_id,message_id))`,
+    `CREATE TABLE IF NOT EXISTS user_profiles (
+      chat_id TEXT PRIMARY KEY,
+      telegram_id TEXT,
+      first_name TEXT,
+      last_name TEXT,
+      username TEXT,
+      source TEXT NOT NULL DEFAULT 'unknown',
+      first_seen_date TEXT,
+      last_seen_date TEXT,
+      last_seen_minute INTEGER,
+      first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      interactions INTEGER NOT NULL DEFAULT 0,
+      notifications_touched INTEGER NOT NULL DEFAULT 0
+    )`,
     `CREATE TABLE IF NOT EXISTS publications (group_chat_id TEXT PRIMARY KEY,message_id INTEGER NOT NULL,bot_username TEXT NOT NULL,group_title TEXT,last_text TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`
   ];
   for(const sql of q)await env.DB.prepare(sql).run();
@@ -22,12 +37,105 @@ export async function ensureSchema(env){
   };
   for(const [name,sql] of Object.entries(add))if(!have.has(name)){try{await env.DB.prepare(sql).run();}catch(e){if(!String(e).toLowerCase().includes('duplicate column'))throw e;}}
   await env.DB.prepare('INSERT OR IGNORE INTO water_rules(chat_id,fallback_intervals_json) VALUES(?,?)').bind(GLOBAL_SCOPE,JSON.stringify(DEFAULT_WATER)).run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_user_profiles_last_seen ON user_profiles(last_seen_date,last_seen_at)').run();
+  await env.DB.prepare(`INSERT OR IGNORE INTO user_profiles(chat_id,telegram_id,source,first_seen_date,last_seen_date,first_seen_at,last_seen_at)
+    SELECT chat_id,chat_id,'legacy',substr(created_at,1,10),substr(COALESCE(updated_at,created_at),1,10),created_at,COALESCE(updated_at,created_at)
+    FROM chats WHERE CAST(chat_id AS TEXT) NOT LIKE '-%'`).run();
+
 }
 
 export async function ensureUser(env,chatId){
   await ensureSchema(env);
   await env.DB.prepare('INSERT OR IGNORE INTO chats(chat_id) VALUES(?)').bind(String(chatId)).run();
   await env.DB.prepare('INSERT OR IGNORE INTO notification_settings(chat_id) VALUES(?)').bind(String(chatId)).run();
+}
+
+export async function trackUserProfile(env,user,startSource=null){
+  if(!user?.id)return;
+  const n=localNow();
+  const chatId=String(user.id);
+  const source=startSource||'unknown';
+  await env.DB.prepare(`INSERT INTO user_profiles(
+      chat_id,telegram_id,first_name,last_name,username,source,first_seen_date,last_seen_date,last_seen_minute,interactions
+    ) VALUES(?,?,?,?,?,?,?,?,?,1)
+    ON CONFLICT(chat_id) DO UPDATE SET
+      telegram_id=excluded.telegram_id,
+      first_name=COALESCE(excluded.first_name,user_profiles.first_name),
+      last_name=COALESCE(excluded.last_name,user_profiles.last_name),
+      username=COALESCE(excluded.username,user_profiles.username),
+      source=CASE
+        WHEN excluded.source NOT IN ('unknown','legacy') AND user_profiles.source IN ('unknown','legacy') THEN excluded.source
+        ELSE user_profiles.source
+      END,
+      last_seen_date=excluded.last_seen_date,
+      last_seen_minute=excluded.last_seen_minute,
+      last_seen_at=CURRENT_TIMESTAMP,
+      interactions=user_profiles.interactions+1`)
+    .bind(chatId,chatId,user.first_name||null,user.last_name||null,user.username||null,source,n.date,n.date,n.minute).run();
+}
+
+export async function markNotificationsTouched(env,chatId){
+  await env.DB.prepare('UPDATE user_profiles SET notifications_touched=1,last_seen_at=CURRENT_TIMESTAMP WHERE chat_id=?').bind(String(chatId)).run();
+}
+
+export async function analyticsOverview(env,adminId,today,start7,start30){
+  const admin=String(adminId||'');
+  const profile=await env.DB.prepare(`SELECT
+      COUNT(*) total,
+      SUM(CASE WHEN first_seen_date=? THEN 1 ELSE 0 END) new_today,
+      SUM(CASE WHEN first_seen_date>=? THEN 1 ELSE 0 END) new_7,
+      SUM(CASE WHEN first_seen_date>=? THEN 1 ELSE 0 END) new_30,
+      SUM(CASE WHEN last_seen_date=? THEN 1 ELSE 0 END) active_today,
+      SUM(CASE WHEN last_seen_date>=? THEN 1 ELSE 0 END) active_7,
+      SUM(CASE WHEN last_seen_date>=? THEN 1 ELSE 0 END) active_30,
+      SUM(CASE WHEN source='chabany' THEN 1 ELSE 0 END) from_channel,
+      SUM(CASE WHEN source='direct' THEN 1 ELSE 0 END) direct,
+      SUM(CASE WHEN source IN ('legacy','unknown') OR source IS NULL THEN 1 ELSE 0 END) unknown_source,
+      SUM(CASE WHEN notifications_touched=1 THEN 1 ELSE 0 END) touched_notifications
+    FROM user_profiles WHERE chat_id<>?`)
+    .bind(today,start7,start30,today,start7,start30,admin).first();
+
+  const reminders=await env.DB.prepare(`SELECT
+      COUNT(*) users_with_settings,
+      SUM(CASE WHEN COALESCE(s.both_alerts,0)=1 OR COALESCE(s.water_alerts,0)=1 OR COALESCE(s.morning_summary,0)=1 OR COALESCE(s.evening_summary,0)=1 THEN 1 ELSE 0 END) active_any,
+      SUM(CASE WHEN COALESCE(s.both_alerts,0)=1 THEN 1 ELSE 0 END) both_on,
+      SUM(CASE WHEN COALESCE(s.water_alerts,0)=1 THEN 1 ELSE 0 END) water_on,
+      SUM(CASE WHEN COALESCE(s.end_alerts,0)=1 THEN 1 ELSE 0 END) end_on,
+      SUM(CASE WHEN COALESCE(s.morning_summary,0)=1 THEN 1 ELSE 0 END) morning_on,
+      SUM(CASE WHEN COALESCE(s.evening_summary,0)=1 THEN 1 ELSE 0 END) evening_on,
+      SUM(CASE WHEN s.lead_minutes=15 THEN 1 ELSE 0 END) lead15,
+      SUM(CASE WHEN s.lead_minutes=30 THEN 1 ELSE 0 END) lead30,
+      SUM(CASE WHEN s.lead_minutes=60 THEN 1 ELSE 0 END) lead60
+    FROM user_profiles p LEFT JOIN notification_settings s ON s.chat_id=p.chat_id
+    WHERE p.chat_id<>?`).bind(admin).first();
+
+  const sent=await env.DB.prepare(`SELECT
+      COUNT(*) total_sent,
+      SUM(CASE WHEN substr(created_at,1,10)=? THEN 1 ELSE 0 END) sent_today,
+      SUM(CASE WHEN substr(created_at,1,10)>=? THEN 1 ELSE 0 END) sent_7
+    FROM notification_log WHERE chat_id<>?`).bind(today,start7,admin).first();
+
+  return {profile:profile||{},reminders:reminders||{},sent:sent||{}};
+}
+
+export async function analyticsUsers(env,adminId,limit=10,offset=0){
+  const admin=String(adminId||'');
+  const rows=await env.DB.prepare(`SELECT p.*,s.both_alerts,s.water_alerts,s.end_alerts,s.lead_minutes,s.min_window_minutes,s.morning_summary,s.evening_summary
+    FROM user_profiles p LEFT JOIN notification_settings s ON s.chat_id=p.chat_id
+    WHERE p.chat_id<>?
+    ORDER BY p.last_seen_at DESC
+    LIMIT ? OFFSET ?`).bind(admin,Number(limit),Number(offset)).all();
+  const count=await env.DB.prepare('SELECT COUNT(*) c FROM user_profiles WHERE chat_id<>?').bind(admin).first();
+  return {users:rows.results||[],total:Number(count?.c||0)};
+}
+
+export async function analyticsActivity(env,adminId,startDate){
+  const admin=String(adminId||'');
+  const news=await env.DB.prepare(`SELECT first_seen_date day,COUNT(*) c FROM user_profiles
+    WHERE chat_id<>? AND first_seen_date>=? GROUP BY first_seen_date ORDER BY first_seen_date`).bind(admin,startDate).all();
+  const active=await env.DB.prepare(`SELECT last_seen_date day,COUNT(*) c FROM user_profiles
+    WHERE chat_id<>? AND last_seen_date>=? GROUP BY last_seen_date ORDER BY last_seen_date`).bind(admin,startDate).all();
+  return {newByDay:news.results||[],activeByDay:active.results||[]};
 }
 
 export async function getSetting(env,key,def=null){const r=await env.DB.prepare('SELECT value FROM app_settings WHERE key=?').bind(key).first();return r?.value??def;}
