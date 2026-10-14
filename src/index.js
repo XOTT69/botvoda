@@ -101,7 +101,7 @@ async function projectedDay(env,p){
   const raw=await getRawDay(env,p.date),groups={'1.2':raw.rows['1.2']?.intervals??null,'2.2':raw.rows['2.2']?.intervals??null},possible={'1.2':raw.possible['1.2']||[],'2.2':raw.possible['2.2']||[]};
   for(const item of p.items){groups[item.group]=normalize(item.intervals);possible[item.group]=normalize(item.possibleIntervals||[]);}
   if(!groups['1.2']||!groups['2.2'])return null;
-  const fallback=await getWaterIntervals(env),p12=complement(groups['1.2']),p22=complement(groups['2.2']),a=availability(p12,p22,fallback);
+  const fallback=await getWaterIntervals(env,p.date),p12=complement(groups['1.2']),p22=complement(groups['2.2']),a=availability(p12,p22,fallback);
   return {...a,p12,p22,off12:groups['1.2'],off22:groups['2.2'],possible12:possible['1.2'],possible22:possible['2.2']};
 }
 function validatePower(p,projected,today){
@@ -130,14 +130,19 @@ async function previewPower(env,chat,p,sourceText){
   return send(env,chat,preview,{reply_markup:{inline_keyboard:[[{text:'✅ Опублікувати',callback_data:`pub:${id}`},{text:'❌ Скасувати',callback_data:`cancel:${id}`}],[{text:'⚙️ Адмін-панель',callback_data:'adm:home'}]]}});
 }
 async function previewWater(env,chat,xs,sourceText){
-  const old=await getWaterIntervals(env),payload={type:'water',date:localNow().date,intervals:xs,sourceText},preview=`💧 <b>Новий резервний графік води</b>\n\nБуло: ${formatIntervals(old)}\nСтане: <b>${formatIntervals(xs)}</b>`,id=await createPending(env,chat,payload,[],preview);
+  const dm=String(sourceText||'').match(/\b(\d{1,2})\.(\d{1,2})\.(20\d{2})\b/);
+  const effectiveDate=dm?`${dm[3]}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`:localNow().date;
+  const old=await getWaterIntervals(env,effectiveDate);
+  const payload={type:'water',date:effectiveDate,intervals:xs,sourceText};
+  const preview=`💧 <b>Новий резервний графік води</b>\n📅 Діє з: <b>${humanDate(effectiveDate)}</b>\n\nБуло: ${formatIntervals(old)}\nСтане: <b>${formatIntervals(xs)}</b>`;
+  const id=await createPending(env,chat,payload,[],preview);
   return send(env,chat,preview,{reply_markup:{inline_keyboard:[[{text:'✅ Опублікувати',callback_data:`pub:${id}`},{text:'❌ Скасувати',callback_data:`cancel:${id}`}]]}});
 }
 async function publishPending(env,chat,id,auto=false){
   const row=await getPending(env,id,chat);if(!row)return send(env,chat,'⚠️ Цей попередній перегляд уже неактуальний.');
   const payload=JSON.parse(row.payload_json);
   if(payload.type==='water'){
-    await saveHistory(env,localNow().date,'water_update','Оновлення резервного графіка води');await setWaterIntervals(env,payload.intervals,payload.sourceText||'');const summary=`💧 Резервний графік води: ${formatIntervals(payload.intervals)}`;await logChange(env,null,summary);await deletePending(env,id);await refreshPublications(env,true);return send(env,chat,`✅ Опубліковано.\n${summary}`,{reply_markup:KB});
+    await saveHistory(env,payload.date||localNow().date,'water_update','Оновлення резервного графіка води');await setWaterIntervals(env,payload.intervals,payload.sourceText||'',payload.date||localNow().date);const summary=`💧 Резервний графік води з ${humanDate(payload.date||localNow().date)}: ${formatIntervals(payload.intervals)}`;await logChange(env,null,summary);await deletePending(env,id);await refreshPublications(env,true);return send(env,chat,`✅ Опубліковано.\n${summary}`,{reply_markup:KB});
   }
   const before=await loadDay(env,payload.date);await saveHistory(env,payload.date,'schedule_update','Перед оновленням графіка');for(const item of payload.items)await saveScheduleGroup(env,payload.date,item.group,item.intervals,item.possibleIntervals||[],payload.sourceText||'');const after=await loadDay(env,payload.date),summary=diffText(before,after,payload.date);await logChange(env,payload.date,summary.replace(/<[^>]+>/g,''));await deletePending(env,id);await refreshPublications(env,true);return send(env,chat,`✅ <b>Опубліковано</b>${auto?' автоматично':''}.\n📌 Закріплене табло синхронізовано.\n\n${summary}`,{reply_markup:KB});
 }
