@@ -284,7 +284,7 @@ export async function restoreHistory(env,id){
 
   if(waterOnly){
     await saveHistory(env,date,'before_water_rollback','Стан води перед відкатом');
-    if(snap.water)await setWaterIntervals(env,snap.water,'rollback');
+    if(snap.water)await setWaterIntervals(env,snap.water,'rollback',date);
   }else{
     await saveHistory(env,date,'before_schedule_rollback','Стан графіка перед відкатом');
     for(const g of ['1.2','2.2']){
