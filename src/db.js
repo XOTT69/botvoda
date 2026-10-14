@@ -10,6 +10,7 @@ export async function ensureSchema(env){
     `CREATE TABLE IF NOT EXISTS change_log (id INTEGER PRIMARY KEY AUTOINCREMENT, schedule_date TEXT, summary_text TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
     `CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
     `CREATE TABLE IF NOT EXISTS power_events (id INTEGER PRIMARY KEY AUTOINCREMENT, channel_chat_id TEXT, message_id INTEGER, state TEXT NOT NULL CHECK(state IN ('on','off')), event_date TEXT NOT NULL, event_minute INTEGER NOT NULL, source TEXT NOT NULL DEFAULT 'channel', source_text TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(channel_chat_id,message_id))`,
+    `CREATE TABLE IF NOT EXISTS water_rule_versions (effective_date TEXT PRIMARY KEY, intervals_json TEXT NOT NULL, source_text TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
     `CREATE TABLE IF NOT EXISTS user_profiles (
       chat_id TEXT PRIMARY KEY,
       telegram_id TEXT,
@@ -37,6 +38,12 @@ export async function ensureSchema(env){
   };
   for(const [name,sql] of Object.entries(add))if(!have.has(name)){try{await env.DB.prepare(sql).run();}catch(e){if(!String(e).toLowerCase().includes('duplicate column'))throw e;}}
   await env.DB.prepare('INSERT OR IGNORE INTO water_rules(chat_id,fallback_intervals_json) VALUES(?,?)').bind(GLOBAL_SCOPE,JSON.stringify(DEFAULT_WATER)).run();
+  await env.DB.prepare(`INSERT OR IGNORE INTO water_rule_versions(effective_date,intervals_json,source_text)
+    SELECT '0001-01-01',fallback_intervals_json,COALESCE(source_text,'legacy')
+    FROM water_rules WHERE chat_id=?`).bind(GLOBAL_SCOPE).run();
+  await env.DB.prepare(`INSERT OR IGNORE INTO water_rule_versions(effective_date,intervals_json,source_text)
+    VALUES('2026-10-15',?,'Оновлений графік водопостачання від 15.10.2026')`)
+    .bind(JSON.stringify([[360,540],[720,840],[1080,1320]])).run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_user_profiles_last_seen ON user_profiles(last_seen_date,last_seen_at)').run();
   await env.DB.prepare(`INSERT OR IGNORE INTO user_profiles(chat_id,telegram_id,source,first_seen_date,last_seen_date,first_seen_at,last_seen_at)
     SELECT chat_id,chat_id,'legacy',substr(created_at,1,10),substr(COALESCE(updated_at,created_at),1,10),created_at,COALESCE(updated_at,created_at)
@@ -221,8 +228,24 @@ export async function powerDayStats(env,date,untilMinute=1440){
   return {known:true,onMinutes,offMinutes,events:ordered,currentState:state};
 }
 
-export async function getWaterIntervals(env){const w=await env.DB.prepare('SELECT fallback_intervals_json FROM water_rules WHERE chat_id=?').bind(GLOBAL_SCOPE).first();return w?JSON.parse(w.fallback_intervals_json):DEFAULT_WATER;}
-export async function setWaterIntervals(env,intervals,sourceText=''){await env.DB.prepare('INSERT INTO water_rules(chat_id,fallback_intervals_json,source_text) VALUES(?,?,?) ON CONFLICT(chat_id) DO UPDATE SET fallback_intervals_json=excluded.fallback_intervals_json,source_text=excluded.source_text,updated_at=CURRENT_TIMESTAMP').bind(GLOBAL_SCOPE,JSON.stringify(intervals),sourceText).run();}
+export async function getWaterRule(env,date=localNow().date){
+  const row=await env.DB.prepare(`SELECT effective_date,intervals_json,source_text,updated_at
+    FROM water_rule_versions WHERE effective_date<=?
+    ORDER BY effective_date DESC LIMIT 1`).bind(date).first();
+  if(row)return {effectiveDate:row.effective_date,intervals:JSON.parse(row.intervals_json),sourceText:row.source_text||'',updatedAt:row.updated_at||null};
+  const legacy=await env.DB.prepare('SELECT fallback_intervals_json,source_text,updated_at FROM water_rules WHERE chat_id=?').bind(GLOBAL_SCOPE).first();
+  return {effectiveDate:'0001-01-01',intervals:legacy?JSON.parse(legacy.fallback_intervals_json):DEFAULT_WATER,sourceText:legacy?.source_text||'',updatedAt:legacy?.updated_at||null};
+}
+export async function getWaterIntervals(env,date=localNow().date){return (await getWaterRule(env,date)).intervals;}
+export async function setWaterIntervals(env,intervals,sourceText='',effectiveDate=localNow().date){
+  await env.DB.prepare(`INSERT INTO water_rule_versions(effective_date,intervals_json,source_text)
+    VALUES(?,?,?) ON CONFLICT(effective_date) DO UPDATE SET intervals_json=excluded.intervals_json,source_text=excluded.source_text,updated_at=CURRENT_TIMESTAMP`)
+    .bind(effectiveDate,JSON.stringify(intervals),sourceText).run();
+  if(effectiveDate<=localNow().date){
+    await env.DB.prepare('INSERT INTO water_rules(chat_id,fallback_intervals_json,source_text) VALUES(?,?,?) ON CONFLICT(chat_id) DO UPDATE SET fallback_intervals_json=excluded.fallback_intervals_json,source_text=excluded.source_text,updated_at=CURRENT_TIMESTAMP')
+      .bind(GLOBAL_SCOPE,JSON.stringify(intervals),sourceText).run();
+  }
+}
 
 export async function getRawDay(env,date){
   const r=await env.DB.prepare(`SELECT group_name,intervals_json,created_at FROM schedules WHERE chat_id=? AND schedule_date=? AND group_name IN ('1.2','2.2')`).bind(GLOBAL_SCOPE,date).all();
@@ -236,15 +259,15 @@ export async function loadDay(env,date){
   await ensureSchema(env);
   const {rows,possible}=await getRawDay(env,date);
   if(!rows['1.2']||!rows['2.2'])return null;
-  const waterRow=await env.DB.prepare('SELECT fallback_intervals_json,updated_at FROM water_rules WHERE chat_id=?').bind(GLOBAL_SCOPE).first();
-  const fallback=waterRow?JSON.parse(waterRow.fallback_intervals_json):DEFAULT_WATER;
+  const waterRule=await getWaterRule(env,date);
+  const fallback=waterRule.intervals;
   const p12=complement(rows['1.2'].intervals),p22=complement(rows['2.2'].intervals);
   const a=availability(p12,p22,fallback);
-  return {...a,p12,p22,off12:rows['1.2'].intervals,off22:rows['2.2'].intervals,possible12:possible['1.2']||[],possible22:possible['2.2']||[],updatedAt:[rows['1.2'].created_at,rows['2.2'].created_at,waterRow?.updated_at].filter(Boolean).sort().at(-1)||null};
+  return {...a,p12,p22,off12:rows['1.2'].intervals,off22:rows['2.2'].intervals,possible12:possible['1.2']||[],possible22:possible['2.2']||[],waterRuleEffectiveDate:waterRule.effectiveDate,updatedAt:[rows['1.2'].created_at,rows['2.2'].created_at,waterRule.updatedAt].filter(Boolean).sort().at(-1)||null};
 }
 
 export async function snapshotDate(env,date){
-  const raw=await getRawDay(env,date);const water=await getWaterIntervals(env);
+  const raw=await getRawDay(env,date);const water=await getWaterIntervals(env,date);
   return {date,groups:{'1.2':raw.rows['1.2']?.intervals??null,'2.2':raw.rows['2.2']?.intervals??null},possible:{'1.2':raw.possible['1.2']||[],'2.2':raw.possible['2.2']||[]},water};
 }
 
