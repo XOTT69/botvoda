@@ -38,11 +38,35 @@ Telegram-бот для Чабанів, який **автоматично бер�
 `DTEK_AUTO_SYNC=off`. Інші токени, webhook-и й Cloudflare Worker
 для репозиторію `XOTT69/dtek` не потрібні.
 
-**Запуск у продакшені:** після зміни GitHub-коду перевірте, що
-Cloudflare Workers Builds автоматично деплоїть `botvoda`, або разово
-запустіть `npx wrangler deploy` зі свого налаштованого середовища.
-Саме збереження коміту в GitHub **не гарантує** активації нової версії
-Worker, якщо автодеплой не підключено.
+### Як активувати новий код у Cloudflare
+
+Якщо `botvoda` уже підключений до **Cloudflare Workers Builds** з
+автоматичним деплоєм гілки `main`, додаткових налаштувань не потрібно:
+Cloudflare сам застосує коміт. Перевірити можна командою
+`/syncdtek` **у приватному чаті з ботом**. Команда доступна тільки
+власнику.
+
+Якщо автодеплою немає, у GitHub додано ручний workflow
+[Deploy water bot to Cloudflare](https://github.com/XOTT69/botvoda/actions/workflows/deploy-worker.yml).
+Для нього одноразово потрібні **GitHub Actions repository secrets**:
+
+- `CLOUDFLARE_ACCOUNT_ID` — Account ID вашого Cloudflare.
+- `CLOUDFLARE_API_TOKEN` — обмежений API token з правом редагувати
+  Cloudflare Workers Scripts для потрібного акаунта (за потреби також
+  доступ до D1).
+
+Після їх додавання: GitHub → Actions → **Deploy water bot to Cloudflare**
+→ **Run workflow**. Робочі секрети Telegram у Cloudflare не потрібно
+передавати в GitHub; вони залишаються у поточному Worker.
+
+Цей workflow запускається **лише вручну**, щоб не створювати
+подвійних деплоїв, якщо Cloudflare Builds уже працює. Без потрібних
+секретів він зупиниться з поясненням — а не удаватиме, що успішно
+розгорнув Worker.
+
+Оновлення GitHub-репозиторію саме по собі **не підтверджує**, що новий
+Worker уже працює в Cloudflare. Тільки після деплою нова
+автосинхронізація виконуватиметься за Cloudflare Cron.
 
 ## Можливості v0.4
 
