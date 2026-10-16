@@ -29,7 +29,9 @@ function validIntervals(value) {
 
 export function decodeDtekSnapshot(state, date) {
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(date)))return null;
-  const source=state?.scheduleSnapshots?.[date];
+  // Dedicated verified feed is written before Telegram publication.
+  // Keep the old snapshot reader as backwards-compatible fallback.
+  const source=state?.confirmedSchedules?.[date] ?? state?.scheduleSnapshots?.[date];
   if(!source || typeof source!=='object' || Array.isArray(source))return null;
   // DTEK writes complete snapshots only when all 12 groups have
   // confirmed fact data. Reject partial/corrupted content altogether.
@@ -73,8 +75,9 @@ export async function syncDtekSchedules(env,{
   if(body.length>MAX_BYTES)throw new Error('DTEK snapshot exceeds size limit');
   let data;
   try{data=JSON.parse(body)}catch{throw new Error('DTEK snapshot is not valid JSON')}
-  if(!data || typeof data!=='object'||!data.scheduleSnapshots)
-    throw new Error('DTEK scheduleSnapshots are missing');
+  if(!data || typeof data!=='object'||
+      (!data.confirmedSchedules && !data.scheduleSnapshots))
+    throw new Error('DTEK confirmed schedules are missing');
 
   const updated=[],unchanged=[],missing=[];
   for(const date of dates) {
