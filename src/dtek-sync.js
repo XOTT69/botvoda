@@ -87,11 +87,8 @@ export async function syncDtekSchedules(env,{
     const current=Object.fromEntries(TARGET_GROUPS.map(g=>[
       g,local.rows[g]?.intervals??null
     ]));
-    if(previousFingerprint===fingerprint &&
-      TARGET_GROUPS.every(g=>current[g]!==null)) {
-      unchanged.push(date);
-      continue;
-    }
+    // Always compare the actual D1 rows, not only the cached fingerprint:
+    // a manual edit or a partial DB recovery must be corrected automatically.
     if(TARGET_GROUPS.every(g=>same(current[g],groups[g]))) {
       if(previousFingerprint!==fingerprint)await setSetting(env,setting,fingerprint);
       unchanged.push(date);
