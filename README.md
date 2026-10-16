@@ -45,6 +45,35 @@ Cron Trigger запускається кожні 5 хвилин.
 
 Нові службові таблиці та колонки v0.4 створюються ботом автоматично, тому вручну виконувати SQL після оновлення не потрібно.
 
+## Надійний запуск графіків DTEK
+
+Бот `XOTT69/dtek` раніше покладався на GitHub Actions `schedule`,
+який не завжди запускався. Цей Worker має **вже налаштований**
+Cloudflare Cron Trigger `*/5 * * * *` і тепер може кожні 5 хвилин
+запускати workflow `publish.yml` у `XOTT69/dtek`.
+
+**Одноразове підключення (обов’язково):**
+
+1. На GitHub створити **fine-grained personal access token**:
+   репозиторій лише `XOTT69/dtek`, дозвіл
+   **Repository permissions → Actions: Read and write**.
+2. Cloudflare → Workers & Pages → `botvoda` → Settings →
+   **Variables and Secrets** → Add Secret `DTEK_GITHUB_TOKEN`.
+   Значенням має бути цей токен. Ніколи не додавати його в GitHub-файли.
+3. **Deploy** останньої версії `botvoda` (якщо Cloudflare не
+   розгортає репозиторій автоматично). При локальному розгортанні:
+   `npx wrangler secret put DTEK_GITHUB_TOKEN` та `npm run deploy`.
+
+Після активації кожен cron запуск створюватиме на GitHub нове
+`workflow_dispatch` для DTEK. Подивитися результат: GitHub →
+`XOTT69/dtek` → Actions → у списку запусків має з’явитись тип
+**workflow_dispatch**, а не лише `push`.
+
+Якщо `DTEK_GITHUB_TOKEN` не задано, вода й нагадування `botvoda`
+працюють **без змін**; резервний запуск DTEK **не активний**.
+Помилки GitHub API не переривають роботу водного бота.
+Збережений у `dtek` захист від дублів діє незалежно від тригера.
+
 ## Канал / група
 
 Бот має бути адміністратором з правами публікувати, редагувати та закріплювати повідомлення.
