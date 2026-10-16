@@ -166,4 +166,16 @@ assert.equal(decodeDtekSnapshot(snapshot(groups([[0,60],[30,90]])),DATE),null);
   assert.deepEqual(r.updated,[TOMORROW]);
   assert.deepEqual(r.missing,[DATE]);
 }
+{
+  // Manual forwarded data must not permanently override a confirmed DTEK
+  // snapshot just because its hash was already cached in app_settings.
+  const env=makeEnv();
+  await run(env,snapshot());
+  env.DB.schedules.set(DATE+':1.2','[[60,120]]');
+  const repaired=await run(env,snapshot());
+  assert.deepEqual(repaired.updated,[DATE]);
+  assert.deepEqual(repaired.unchanged,[TOMORROW]);
+  assert.equal(env.DB.schedules.get(DATE+':1.2'),'[[360,540]]');
+  assert.equal(env.DB.batches,3);
+}
 console.log('DTEK sync tests passed');
