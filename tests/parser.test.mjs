@@ -100,4 +100,37 @@ assert.equal(pc.items.length,1);
 assert.equal(pc.items[0].group,'2.2');
 assert.deepEqual(pc.items[0].intervals,[[360,420],[810,1050]]);
 
+
+const forwardedDtek = `💡Оновлений графік відключення світла на сьогодні.
+📆П'ятниця, 16.10.2026
+
+💡Підгрупа 1.1 відключення:
+❌з 09:30 до 11:30 (2.0 год)
+⚫ Разом без світла: 2.0 год
+
+💡Підгрупа 1.2 відключення:
+❌з 09:30 до 11:30 (2.0 год)
+❌з 18:00 до 22:00 (4.0 год)
+⚫ Разом без світла: 6.0 год
+
+💡Підгрупа 2.1 відключення:
+❌з 09:30 до 11:30 (2.0 год)
+⚫ Разом без світла: 2.0 год
+
+💡Підгрупа 2.2 відключення:
+❌з 09:00 до 15:00 (6.0 год)
+❌з 18:00 до 22:00 (4.0 год)
+⚫ Разом без світла: 10.0 год
+
+💡Підгрупа 3.1 відключення:
+❌з 11:00 до 15:00 (4.0 год)
+⚫ Разом без світла: 4.0 год`;
+const forwardedParsed = parsePowerMessage(forwardedDtek);
+assert.equal(forwardedParsed?.date, '2026-10-16');
+assert.equal(forwardedParsed.kind, 'full');
+assert.deepEqual(forwardedParsed.items.find(x => x.group === '1.2').intervals,
+  [[570,690], [1080,1320]]);
+assert.deepEqual(forwardedParsed.items.find(x => x.group === '2.2').intervals,
+  [[540,900], [1080,1320]]);
+
 console.log('parser tests passed');
