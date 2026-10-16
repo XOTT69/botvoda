@@ -102,6 +102,22 @@ assert.equal(DTEK_STATE_URL,
 assert.deepEqual(decodeDtekSnapshot(snapshot(),DATE),{
   '1.2':[[360,540]],'2.2':[[600,720]]
 });
+{
+  const state=snapshot();
+  state.confirmedSchedules={
+    [DATE]:groups([[480,660]],[[1080,1320]]),
+    [TOMORROW]:groups([[540,720]],[[1260,1440]])
+  };
+  // New verified feed wins over the old correction baseline.
+  assert.deepEqual(decodeDtekSnapshot(state,DATE),{
+    '1.2':[[480,660]],'2.2':[[1080,1320]]
+  });
+  const e=makeEnv();
+  const imported=await run(e,state);
+  assert.deepEqual(imported.updated,[DATE,TOMORROW]);
+  assert.equal(e.DB.schedules.get(DATE+':1.2'),'[[480,660]]');
+  assert.equal(e.DB.schedules.get(TOMORROW+':2.2'),'[[1260,1440]]');
+}
 assert.equal(decodeDtekSnapshot({scheduleSnapshots:{[DATE]:{'1.2':[[0,60]],'2.2':[]}}},DATE),null);
 assert.equal(decodeDtekSnapshot(snapshot(groups([[720,600]])),DATE),null);
 assert.equal(decodeDtekSnapshot(snapshot(groups([[15,60]])),DATE),null);
