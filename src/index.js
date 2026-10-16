@@ -326,7 +326,46 @@ async function showPending(env,chat,msgId=null){
   return msgId?edit(env,chat,msgId,text,kb):send(env,chat,text,{reply_markup:kb});
 }
 
-async function systemStatus(env,chat,msgId){const pubs=await env.DB.prepare('SELECT COUNT(*) AS c FROM publications').first(),users=await env.DB.prepare('SELECT COUNT(*) AS c FROM notification_settings').first(),a=await loadDay(env,localNow().date),text=`🩺 <b>Статус системи</b>\n\nБаза D1: ✅\nГрафік сьогодні: ${a?'✅':'❌'}\nПідключених каналів/груп: <b>${pubs?.c||0}</b>\nКористувачів сповіщень: <b>${users?.c||0}</b>\nCron: кожні 5 хв`;return edit(env,chat,msgId,text,{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});}
+async function systemStatus(env,chat,msgId){
+  const now=localNow(),tomorrow=addDays(now.date,1);
+  const [pubs,users,todayDay,tomorrowDay,lastSuccess,lastResult]=await Promise.all([
+    env.DB.prepare('SELECT COUNT(*) AS c FROM publications').first(),
+    env.DB.prepare('SELECT COUNT(*) AS c FROM notification_settings').first(),
+    loadDay(env,now.date),
+    loadDay(env,tomorrow),
+    getSetting(env,'dtek_auto_last_success'),
+    getSetting(env,'dtek_auto_last_result')
+  ]);
+  let syncText='⏳ Нову синхронізацію ще не підтверджено';
+  if(lastSuccess){
+    const parsed=new Date(lastSuccess);
+    if(!Number.isNaN(parsed.getTime())){
+      const age=Math.round((Date.now()-parsed.getTime())/60000);
+      const fresh=age>=0&&age<=15;
+      syncText=(fresh?'✅':'⚠️')+' Остання перевірка ДТЕК: '+
+        escapeHtml(fmtUpdated(lastSuccess,TZ))+
+        ' ('+Math.max(age,0)+' хв тому)';
+    }
+  }
+  let confirmation='';
+  try{
+    const result=JSON.parse(lastResult||'null');
+    if(result?.missing?.length)confirmation=
+      '\n⏳ Без нового підтвердження: '+
+      result.missing.map(humanDate).join(', ');
+  }catch{}
+  const text='🩺 <b>Статус системи</b>\n\n'+
+    'База D1: ✅\n'+
+    '💧⚡ Графік сьогодні: '+(todayDay?'✅':'❌')+'\n'+
+    '🌅 Графік завтра: '+(tomorrowDay?'✅':'⏳')+'\n\n'+
+    syncText+confirmation+'\n'+
+    '📡 Автооновлення: '+(env.DTEK_AUTO_SYNC==='off'?'вимкнено':'кожні 5 хв')+'\n\n'+
+    'Підключених каналів/груп: <b>'+(pubs?.c||0)+'</b>\n'+
+    'Користувачів сповіщень: <b>'+(users?.c||0)+'</b>';
+  return edit(env,chat,msgId,text,{
+    inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]
+  });
+}
 async function changesMenu(env,chat,msgId){const rows=await recentChanges(env,5);let s='🧾 <b>Останні зміни</b>\n';if(!rows.length)s+='\nПоки немає.';else for(const r of rows)s+=`\n\n${r.schedule_date?humanDate(r.schedule_date):'Вода'}\n${escapeHtml(r.summary_text).slice(0,700)}`;return edit(env,chat,msgId,s,{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});}
 async function rollbackMenu(env,chat,msgId){const rows=await recentHistory(env,5),kb=rows.map(r=>[{text:`↩️ #${r.id} ${r.schedule_date?humanDate(r.schedule_date):''}`,callback_data:`rb:${r.id}`}]);kb.push([{text:'⬅️ Назад',callback_data:'adm:home'}]);return edit(env,chat,msgId,'↩️ <b>Відкат</b>\nОберіть попередню версію:',{inline_keyboard:kb});}
 async function replaceWithDay(env,chat,msgId,date){const a=await loadDay(env,date),text=a?dayBlock(date===localNow().date?'СЬОГОДНІ':'ЗАВТРА',date,a,fmtUpdated(a.updatedAt,TZ)):`📅 ${humanDate(date)}\nГрафік ще не завантажено.`;return edit(env,chat,msgId,text,{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});}
