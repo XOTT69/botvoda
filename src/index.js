@@ -4,6 +4,7 @@ import {fmtUpdated,nowBlock,dayBlock,diffText} from './render.js';
 import {send,edit,answer,setupWebhook,webhookInfo,webhookSecret} from './telegram.js';
 import {setupGroupPublication,refreshPublications,refreshOnePublication,checkGroupRights} from './publications.js';
 import {notifyMenu,notificationCallback,notifyAll} from './notifications.js';
+import {dispatchDtekPublisher} from './dtek-scheduler.js';
 
 const KB={keyboard:[[{text:'📅 Сьогодні'},{text:'🌅 Завтра'}],[{text:'📋 Графік'},{text:'🔔 Сповіщення'}],[{text:'ℹ️ Допомога'}]],resize_keyboard:true,is_persistent:true};
 const TZ='Europe/Kyiv';
@@ -22,7 +23,14 @@ export default {
     }
     return new Response('Not found',{status:404});
   },
-  async scheduled(c,env,ctx){ctx.waitUntil((async()=>{await ensureSchema(env);await Promise.all([notifyAll(new Date(c.scheduledTime),env),refreshPublications(env)]);})());}
+  async scheduled(c,env,ctx){
+    // Independent scheduler tasks: DTEK dispatch must not block water alerts.
+    ctx.waitUntil(dispatchDtekPublisher(env));
+    ctx.waitUntil((async()=>{
+      await ensureSchema(env);
+      await Promise.all([notifyAll(new Date(c.scheduledTime),env),refreshPublications(env)]);
+    })());
+  }
 };
 
 async function handle(up,env){
