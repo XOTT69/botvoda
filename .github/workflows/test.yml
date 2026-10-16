@@ -26,3 +26,9 @@ jobs:
           node-version: '22'
       - name: Test existing parsers and automatic DTEK sync
         run: npm test
+      - name: Validate Worker module syntax
+        run: node --check src/index.js
+      - name: Install Cloudflare bundler
+        run: npm install --no-audit --no-fund
+      - name: Build Worker without uploading it
+        run: npx wrangler deploy --dry-run --outdir /tmp/botvoda-build
