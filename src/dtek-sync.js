@@ -123,5 +123,10 @@ export async function syncDtekSchedules(env,{
       ': groups 1.2, 2.2');
     await logChange(env,date,'🤖 Автооновлення ДТЕК: групи 1.2 та 2.2');
   }
+  // Operational heartbeat: confirms that the live Worker read and validated
+  // the upstream JSON, even if DTEK has not published tomorrow yet.
+  await setSetting(env,'dtek_auto_last_success',now.toISOString());
+  await setSetting(env,'dtek_auto_last_result',
+    JSON.stringify({updated,unchanged,missing}));
   return {status:'ok',updated,unchanged,missing};
 }
