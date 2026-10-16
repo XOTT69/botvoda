@@ -4,6 +4,7 @@ import {fmtUpdated,nowBlock,dayBlock,diffText} from './render.js';
 import {send,edit,answer,setupWebhook,webhookInfo,webhookSecret} from './telegram.js';
 import {setupGroupPublication,refreshPublications,refreshOnePublication,checkGroupRights} from './publications.js';
 import {notifyMenu,notificationCallback,notifyAll} from './notifications.js';
+import {syncDtekSchedules} from './dtek-sync.js';
 
 const KB={keyboard:[[{text:'📅 Сьогодні'},{text:'🌅 Завтра'}],[{text:'📋 Графік'},{text:'🔔 Сповіщення'}],[{text:'ℹ️ Допомога'}]],resize_keyboard:true,is_persistent:true};
 const TZ='Europe/Kyiv';
@@ -22,7 +23,20 @@ export default {
     }
     return new Response('Not found',{status:404});
   },
-  async scheduled(c,env,ctx){ctx.waitUntil((async()=>{await ensureSchema(env);await Promise.all([notifyAll(new Date(c.scheduledTime),env),refreshPublications(env)]);})());}
+  async scheduled(c,env,ctx){ctx.waitUntil((async()=>{
+    await ensureSchema(env);
+    // Ingest confirmed DTEK schedules FIRST: personal alerts and the
+    // pinned water+power dashboard must see the same new data.
+    try {
+      const sync=await syncDtekSchedules(env,{now:new Date(c.scheduledTime)});
+      if(sync.updated.length)console.log('DTEK auto-sync updated:',sync.updated.join(', '));
+    } catch(e) {
+      // Temporary GitHub unavailability must never disable reminders
+      // or the existing pinned dashboard.
+      console.warn('DTEK auto-sync skipped:',String(e?.message||e));
+    }
+    await Promise.all([notifyAll(new Date(c.scheduledTime),env),refreshPublications(env)]);
+  })());}
 };
 
 async function handle(up,env){
@@ -48,7 +62,22 @@ async function handle(up,env){
   if(text==='🌅 Завтра'||text==='/tomorrow')return showDay(env,chat,addDays(localNow().date,1),false);
   if(text==='📋 Графік'||text==='/schedule')return showRaw(env,chat,localNow().date);
   if(text==='🔔 Сповіщення'||text==='/notifications'){await markNotificationsTouched(env,chat);return notifyMenu(env,chat);}
-  if(text==='ℹ️ Допомога'||text==='/help')return send(env,chat,'📌 У каналі — короткий актуальний статус.\n🔔 Тут — персональні нагадування, сьогодні/завтра та деталі.\n\nОновлювати графік може тільки адміністратор.',{reply_markup:KB});
+  if(text==='ℹ️ Допомога'||text==='/help')return send(env,chat,'📌 У каналі — короткий актуальний статус.\n🔔 Тут — персональні нагадування, сьогодні/завтра та деталі.\n\nГрафіки ДТЕК сьогодні/завтра завантажуються автоматично кожні 5 хвилин, коли вони підтверджені. Резервний графік води керується окремо.',{reply_markup:KB});
+  if(/^\/syncdtek$/i.test(text)&&admin){
+    try{
+      const r=await syncDtekSchedules(env);
+      if(r.updated.length)await refreshPublications(env,true);
+      const dates=xs=>xs.length?xs.map(humanDate).join(', '):'немає';
+      return send(env,chat,'🔄 <b>Синхронізація ДТЕК</b>\n\n'+
+        '✅ Оновлено: '+dates(r.updated)+'\n'+
+        '🔁 Без змін: '+dates(r.unchanged)+'\n'+
+        '⏳ Чекаємо підтвердження: '+dates(r.missing)+'\n\n'+
+        '💧 Вода: підгрупа 1.2\n⚡ Світло: підгрупа 2.2');
+    }catch(e){
+      return send(env,chat,'❌ Помилка синхронізації ДТЕК: <code>'+
+        escapeHtml(String(e?.message||e))+'</code>');
+    }
+  }
   if(/^\/admin$/i.test(text)&&admin)return adminMenu(env,chat);
   if(/^\/analytics$/i.test(text))return admin?analyticsHome(env,chat):send(env,chat,'⛔️ Команда недоступна.');
   if((/^\/water$/i.test(text)||text==='💧 Вода зараз')&&admin)return manualWaterMenu(env,chat);
@@ -154,7 +183,7 @@ async function adminMenu(env,chat,msgId=null){
   const [auto,water,power]=await Promise.all([getSetting(env,'auto_publish','0'),getManualWaterStatus(env),getEffectivePowerStatus(env)]);
   const waterLabel=water.state==='on'?'✅ вода є':water.state==='off'?'❌ води немає':'🤖 за графіком';
   const powerLabel=power.state==='on'?`✅ світло є (${power.source==='manual'?'вручну':'факт'})`:power.state==='off'?`❌ світла немає (${power.source==='manual'?'вручну':'факт'})`:'🤖 за графіком';
-  const text=`👑 <b>Адмін-панель</b>\n\nПублікація: <b>${auto==='1'?'автоматична':'через попередній перегляд'}</b>\n💧 Вода зараз: <b>${waterLabel}</b>\n⚡ Світло зараз: <b>${powerLabel}</b>\n\nПерешли сюди новий графік — я покажу зміни перед публікацією.`;
+  const text=`👑 <b>Адмін-панель</b>\n\nПублікація: <b>${auto==='1'?'автоматична':'через попередній перегляд'}</b>\n💧 Вода зараз: <b>${waterLabel}</b>\n⚡ Світло зараз: <b>${powerLabel}</b>\n\n🤖 Підтверджені графіки ДТЕК підтягуються автоматично кожні 5 хв.\n🔄 Ручна перевірка: /syncdtek\n\nДля ручного уточнення графіка його все ще можна переслати сюди.`;
   const kb={inline_keyboard:[
     [{text:'💧 Вода зараз',callback_data:'adm:water'},{text:'⚡ Світло зараз',callback_data:'adm:power'}],
     [{text:'📊 Аналітика',callback_data:'adm:analytics'},{text:'📊 Факт світла',callback_data:'adm:powerstats'}],
