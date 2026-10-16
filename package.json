@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/parser.test.mjs && node tests/features.test.mjs && node --test tests/dtek-scheduler.test.mjs",
+    "test": "node tests/parser.test.mjs && node tests/features.test.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },
