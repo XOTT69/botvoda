@@ -115,6 +115,10 @@ assert.equal(decodeDtekSnapshot(snapshot(groups([[0,60],[30,90]])),DATE),null);
   assert.deepEqual(first.missing,[]);
   assert.equal(env.DB.batches,2);
   assert.equal(env.DB.history.length,2);
+  assert.equal(env.DB.settings.get('dtek_auto_last_success'),now.toISOString());
+  assert.deepEqual(JSON.parse(env.DB.settings.get('dtek_auto_last_result')),{
+    updated:[DATE,TOMORROW],unchanged:[],missing:[]
+  });
   assert.equal(env.DB.changes.length,2);
   assert.equal(env.DB.schedules.get(DATE+':1.2'),'[[360,540]]');
   assert.equal(env.DB.schedules.get(DATE+':2.2'),'[[600,720]]');
@@ -125,6 +129,9 @@ assert.equal(decodeDtekSnapshot(snapshot(groups([[0,60],[30,90]])),DATE),null);
   assert.deepEqual(second.updated,[]);
   assert.deepEqual(second.unchanged,[DATE,TOMORROW]);
   assert.equal(env.DB.batches,2,'repeat cron must not rewrite schedules');
+  assert.deepEqual(JSON.parse(env.DB.settings.get('dtek_auto_last_result')),{
+    updated:[],unchanged:[DATE,TOMORROW],missing:[]
+  });
   assert.equal(env.DB.history.length,2,'repeat cron must not duplicate history');
 
   const revised=await run(env,snapshot(groups([[360,600]],[[660,780]])));
