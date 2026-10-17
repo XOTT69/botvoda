@@ -26,6 +26,8 @@ export async function ensureSchema(env){
       interactions INTEGER NOT NULL DEFAULT 0,
       notifications_touched INTEGER NOT NULL DEFAULT 0
     )`,
+    `CREATE TABLE IF NOT EXISTS water_reports (telegram_user_id TEXT PRIMARY KEY,state TEXT NOT NULL CHECK(state IN ('on','off')),reported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
+    `CREATE INDEX IF NOT EXISTS idx_water_reports_time ON water_reports(reported_at)` ,
     `CREATE TABLE IF NOT EXISTS publications (group_chat_id TEXT PRIMARY KEY,message_id INTEGER NOT NULL,bot_username TEXT NOT NULL,group_title TEXT,last_text TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`
   ];
   for(const sql of q)await env.DB.prepare(sql).run();
