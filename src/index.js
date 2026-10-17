@@ -5,8 +5,9 @@ import {send,edit,answer,setupWebhook,webhookInfo,webhookSecret} from './telegra
 import {setupGroupPublication,refreshPublications,refreshOnePublication,checkGroupRights} from './publications.js';
 import {notifyMenu,notificationCallback,notifyAll} from './notifications.js';
 import {syncDtekSchedules} from './dtek-sync.js';
+import {getCommunityWaterReports,saveCommunityWaterReport,pruneCommunityWaterReports,communityWaterLine,reportTimeKyiv} from './water-reports.js';
 
-const KB={keyboard:[[{text:'📅 Сьогодні'},{text:'🌅 Завтра'}],[{text:'📋 Графік'},{text:'🔔 Сповіщення'}],[{text:'ℹ️ Допомога'}]],resize_keyboard:true,is_persistent:true};
+const KB={keyboard:[[{text:'📅 Сьогодні'},{text:'🌅 Завтра'}],[{text:'📋 Графік'},{text:'🔔 Сповіщення'}],[{text:'💧 Стан води'}],[{text:'ℹ️ Допомога'}]],resize_keyboard:true,is_persistent:true};
 const TZ='Europe/Kyiv';
 const escapeHtml=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const isAdminUser=(id,env)=>Boolean(env.ADMIN_TELEGRAM_ID)&&String(id||'')===String(env.ADMIN_TELEGRAM_ID);
@@ -35,7 +36,7 @@ export default {
       // or the existing pinned dashboard.
       console.warn('DTEK auto-sync skipped:',String(e?.message||e));
     }
-    await Promise.all([notifyAll(new Date(c.scheduledTime),env),refreshPublications(env)]);
+    await Promise.all([notifyAll(new Date(c.scheduledTime),env),refreshPublications(env),pruneCommunityWaterReports(env)]);
   })());}
 };
 
@@ -55,14 +56,15 @@ async function handle(up,env){
 
   await ensureUser(env,chat);
   const startMatch=text.match(/^\/start(?:@\w+)?(?:\s+(\S+))?/i);
-  const startSource=startMatch?(startMatch[1]==='chabany'?'chabany':'direct'):null;
+  const startSource=startMatch?(['chabany','water-report'].includes(startMatch[1])?'chabany':'direct'):null;
   await trackUserProfile(env,m.from,startSource);
-  if(text.startsWith('/start')){const x=admin?'\n\n👑 Для керування: /admin':'';return send(env,chat,'💧⚡ <b>Чабани: вода + світло</b>\n\nВода залежить від групи <b>1.2</b>. Ваше світло — група <b>2.2</b>.\nТут можна дивитися актуальний графік і налаштовувати персональні нагадування.'+x,{reply_markup:KB});}
+  if(text.startsWith('/start')){if(startMatch?.[1]==='water-report')return communityWaterMenu(env,chat);const x=admin?'\n\n👑 Для керування: /admin':'';return send(env,chat,'💧⚡ <b>Чабани: вода + світло</b>\n\nВода залежить від групи <b>1.2</b>. Ваше світло — група <b>2.2</b>.\nТут можна дивитися графік, налаштовувати нагадування та повідомляти про фактичний стан води.'+x,{reply_markup:KB});}
   if(text==='📅 Сьогодні'||text==='/today')return showDay(env,chat,localNow().date,true);
   if(text==='🌅 Завтра'||text==='/tomorrow')return showDay(env,chat,addDays(localNow().date,1),false);
   if(text==='📋 Графік'||text==='/schedule')return showRaw(env,chat,localNow().date);
   if(text==='🔔 Сповіщення'||text==='/notifications'){await markNotificationsTouched(env,chat);return notifyMenu(env,chat);}
-  if(text==='ℹ️ Допомога'||text==='/help')return send(env,chat,'📌 У каналі — короткий актуальний статус.\n🔔 Тут — персональні нагадування, сьогодні/завтра та деталі.\n\nГрафіки ДТЕК сьогодні/завтра завантажуються автоматично кожні 5 хвилин, коли вони підтверджені. Резервний графік води керується окремо.',{reply_markup:KB});
+  if(text==='💧 Стан води'||/^\/(waterstatus|reportwater)(?:@\w+)?$/i.test(text))return communityWaterMenu(env,chat);
+  if(text==='ℹ️ Допомога'||text==='/help')return send(env,chat,'📌 У каналі — короткий актуальний статус.\n🔔 Тут — персональні нагадування, сьогодні/завтра та деталі.\n\nГрафіки ДТЕК сьогодні/завтра завантажуються автоматично кожні 5 хвилин, коли вони підтверджені. Резервний графік води керується окремо.\n\n💧 «Стан води» — повідомлення мешканців про наявність води; це не показники датчика й не офіційний факт.',{reply_markup:KB});
   if(/^\/syncdtek$/i.test(text)&&admin){
     try{
       const r=await syncDtekSchedules(env);
@@ -176,8 +178,22 @@ async function publishPending(env,chat,id,auto=false){
   const before=await loadDay(env,payload.date);await saveHistory(env,payload.date,'schedule_update','Перед оновленням графіка');for(const item of payload.items)await saveScheduleGroup(env,payload.date,item.group,item.intervals,item.possibleIntervals||[],payload.sourceText||'');const after=await loadDay(env,payload.date),summary=diffText(before,after,payload.date);await logChange(env,payload.date,summary.replace(/<[^>]+>/g,''));await deletePending(env,id);await refreshPublications(env,true);return send(env,chat,`✅ <b>Опубліковано</b>${auto?' автоматично':''}.\n📌 Закріплене табло синхронізовано.\n\n${summary}`,{reply_markup:KB});
 }
 
-async function showDay(env,chat,date,withNow){const a=await loadDay(env,date);if(!a)return send(env,chat,`📅 <b>${humanDate(date)}</b>\nГрафік ще не завантажено.`,{reply_markup:KB});const now=localNow(),[manual,power]=await Promise.all([getManualWaterStatus(env),getEffectivePowerStatus(env)]),manualView={...manual,updatedLabel:fmtUpdated(manual?.updatedAt,TZ)},powerView={...power,updatedLabel:fmtUpdated(power?.updatedAt,TZ)};let s=withNow&&date===now.date?`${nowBlock(a,now.minute,manualView,powerView,now.date)}\n\n`:'';s+=dayBlock(date===now.date?'СЬОГОДНІ':'ЗАВТРА',date,a,fmtUpdated(a.updatedAt,TZ));return send(env,chat,s,{reply_markup:KB});}
+async function showDay(env,chat,date,withNow){const a=await loadDay(env,date);if(!a)return send(env,chat,`📅 <b>${humanDate(date)}</b>\nГрафік ще не завантажено.`,{reply_markup:KB});const now=localNow(),[manual,power,community]=await Promise.all([getManualWaterStatus(env),getEffectivePowerStatus(env),withNow&&date===now.date?getCommunityWaterReports(env):Promise.resolve(null)]),manualView={...manual,updatedLabel:fmtUpdated(manual?.updatedAt,TZ)},powerView={...power,updatedLabel:fmtUpdated(power?.updatedAt,TZ)};let s=withNow&&date===now.date?`${nowBlock(a,now.minute,manualView,powerView,now.date,communityWaterLine(community))}\n\n`:'';s+=dayBlock(date===now.date?'СЬОГОДНІ':'ЗАВТРА',date,a,fmtUpdated(a.updatedAt,TZ));return send(env,chat,s,{reply_markup:KB});}
 async function showRaw(env,chat,date){const a=await loadDay(env,date);if(!a)return send(env,chat,'Графік ще не завантажено.',{reply_markup:KB});let s=`📋 <b>${humanDate(date)}</b>\n1.2 відключення: ${formatIntervals(a.off12)}\n2.2 відключення: ${formatIntervals(a.off22)}`;if(a.possible12.length||a.possible22.length)s+=`\n\n🟡 Можливі:\n1.2: ${formatIntervals(a.possible12)}\n2.2: ${formatIntervals(a.possible22)}`;return send(env,chat,s,{reply_markup:KB});}
+
+async function communityWaterMenu(env,chat,msgId=null){
+  const stats=await getCommunityWaterReports(env),last=reportTimeKyiv(stats.latestAt);
+  const details=last?'\n🕒 Останнє повідомлення: <b>'+last+'</b>':'';
+  const text='💧 <b>Стан води • Чабани</b>\n\n'+communityWaterLine(stats)+details+
+    '\n\nОцінка за повідомленнями різних користувачів за останні 45 хвилин. Один користувач враховується один раз. Для висновку потрібно хоча б 2 узгоджені повідомлення.'+
+    '\n\n⚠️ Це слова мешканців, а не перевірений стан водопроводу. У різних будинках вода може бути по-різному.'+
+    '\n\n<b>Як зараз у вас?</b>';
+  const kb={inline_keyboard:[
+    [{text:'💧 Вода є',callback_data:'wr:on'},{text:'🚱 Води немає',callback_data:'wr:off'}],
+    [{text:'🔄 Оновити повідомлення',callback_data:'wr:view'}]
+  ]};
+  return msgId?edit(env,chat,msgId,text,kb):send(env,chat,text,{reply_markup:kb});
+}
 
 async function adminMenu(env,chat,msgId=null){
   const [auto,water,power]=await Promise.all([getSetting(env,'auto_publish','0'),getManualWaterStatus(env),getEffectivePowerStatus(env)]);
@@ -372,6 +388,15 @@ async function replaceWithDay(env,chat,msgId,date){const a=await loadDay(env,dat
 
 async function callback(q,env){
   const chat=String(q.message?.chat?.id||'');if(!chat)return;const admin=isAdminUser(q.from?.id,env);if(q.message?.chat?.type!=='private')return answer(env,q.id);await ensureUser(env,chat);await trackUserProfile(env,q.from,null);const d=q.data||'';
+  if(d==='wr:view'){await answer(env,q.id);return communityWaterMenu(env,chat,q.message.message_id);}
+  if(d==='wr:on'||d==='wr:off'){
+    if(!q.from?.id)return answer(env,q.id,'Не можу визначити користувача');
+    const saved=await saveCommunityWaterReport(env,q.from.id,d==='wr:on'?'on':'off');
+    await answer(env,q.id,saved?'Дякуємо! Враховано.':'Ви вже повідомляли нещодавно.');
+    await communityWaterMenu(env,chat,q.message.message_id);
+    if(saved)await refreshPublications(env);
+    return;
+  }
   if(d.startsWith('pub:')){await answer(env,q.id);if(!admin)return;return publishPending(env,chat,d.split(':')[1]);}
   if(d.startsWith('cancel:')){if(!admin)return answer(env,q.id,'Недоступно');await deletePending(env,d.split(':')[1]);await answer(env,q.id,'Скасовано');return edit(env,chat,q.message.message_id,'❌ Публікацію скасовано.',null);}
   if(d.startsWith('adm:')){if(!admin){await answer(env,q.id,'Недоступно');return;}await answer(env,q.id);const a=d.split(':')[1];if(a==='home')return adminMenu(env,chat,q.message.message_id);if(a==='water')return manualWaterMenu(env,chat,q.message.message_id);if(a==='power')return manualPowerMenu(env,chat,q.message.message_id);if(a==='powerstats')return powerStatsMenu(env,chat,q.message.message_id);if(a==='analytics')return analyticsHome(env,chat,q.message.message_id);if(a==='update')return edit(env,chat,q.message.message_id,'➕ <b>Оновлення графіка</b>\n\nПросто перешли сюди нове повідомлення з графіком або змінами. Я спочатку покажу попередній перегляд і різницю.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});if(a==='today')return replaceWithDay(env,chat,q.message.message_id,localNow().date);if(a==='tomorrow')return replaceWithDay(env,chat,q.message.message_id,addDays(localNow().date,1));if(a==='pending')return showPending(env,chat,q.message.message_id);if(a==='changes')return changesMenu(env,chat,q.message.message_id);if(a==='rollback')return rollbackMenu(env,chat,q.message.message_id);if(a==='refresh'){await refreshPublications(env,true);return edit(env,chat,q.message.message_id,'✅ Закріплене табло оновлено.',{inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]});}if(a==='status')return systemStatus(env,chat,q.message.message_id);if(a==='auto'){const cur=await getSetting(env,'auto_publish','0');await setSetting(env,'auto_publish',cur==='1'?'0':'1');return adminMenu(env,chat,q.message.message_id);}}

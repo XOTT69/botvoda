@@ -5,7 +5,7 @@ export function fmtUpdated(ts,tz='Europe/Kyiv'){
   return new Intl.DateTimeFormat('uk-UA',{timeZone:tz,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(d);
 }
 
-export function nowBlock(a,minute,manualWater=null,powerStatus=null,currentDate=null){
+export function nowBlock(a,minute,manualWater=null,powerStatus=null,currentDate=null,communityLine=null){
   if(!a)return '⏳ Актуальний графік ще не завантажено.';
   const s=statusAt(a,minute);
 
@@ -46,6 +46,7 @@ export function nowBlock(a,minute,manualWater=null,powerStatus=null,currentDate=
 
   let out=`📍 <b>ЗАРАЗ</b>\n${waterLine}\n${powerLine}\n⚡💧 Разом: <b>${actualBoth?'✅ є':'❌ немає'}</b>`;
   if(poss12||poss22){const x=[];if(poss12)x.push('1.2');if(poss22)x.push('2.2');out+=`\n🟡 Зараз діє зона можливого відключення: <b>${x.join(', ')}</b>`;}
+  if(communityLine)out+='\n'+communityLine;
   return out;
 }
 
@@ -64,8 +65,8 @@ export function dayBlock(label,date,a,updated=null,compact=false){
   return s;
 }
 
-export function publicText(today,tomorrow,todayData,tomorrowData,minute,todayUpdated,tomorrowUpdated,manualWater=null,powerStatus=null){
-  let s=`📍 <b>Чабани • вода та світло</b>\n\n${nowBlock(todayData,minute,manualWater,powerStatus,today)}\n\nℹ️ Вода залежить від електропостачання групи <b>1.2</b>. Якщо у 1.2 немає світла — діє резервний графік води.\n\n${dayBlock('СЬОГОДНІ',today,todayData,todayUpdated,true)}`;
+export function publicText(today,tomorrow,todayData,tomorrowData,minute,todayUpdated,tomorrowUpdated,manualWater=null,powerStatus=null,communityLine=null){
+  let s=`📍 <b>Чабани • вода та світло</b>\n\n${nowBlock(todayData,minute,manualWater,powerStatus,today,communityLine)}\n\nℹ️ Вода залежить від електропостачання групи <b>1.2</b>. Якщо у 1.2 немає світла — діє резервний графік води.\n\n${dayBlock('СЬОГОДНІ',today,todayData,todayUpdated,true)}`;
   if(tomorrowData)s+=`\n\n━━━━━━━━━━━━━━\n\n${dayBlock('ЗАВТРА',tomorrow,tomorrowData,tomorrowUpdated,true)}`;
   s+=`\n\n🔔 <b>Персональні нагадування та деталі — у боті.</b>`;
   return s;

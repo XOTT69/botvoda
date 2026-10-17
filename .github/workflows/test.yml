@@ -8,6 +8,13 @@ on:
       - 'tests/**'
       - 'package.json'
       - '.github/workflows/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'package.json'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
