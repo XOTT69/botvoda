@@ -1,4 +1,4 @@
-import {addDays,localNow,complement} from './lib.js';
+import {addDays,localNow} from './lib.js';
 import {loadDay,getManualWaterStatus,getEffectivePowerStatus} from './db.js';
 import {fmtUpdated,publicText} from './render.js';
 import {tg,safeJson,send} from './telegram.js';
