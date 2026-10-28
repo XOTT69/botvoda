@@ -44,7 +44,7 @@ export function nowBlock(a,minute,manualWater=null,powerStatus=null,currentDate=
     powerLine=`⚡ Світло 2.2: <b>${s.current.power?'✅ є':'❌ немає'}</b> <i>(за графіком)</i>`;
   }
 
-  let out=`📍 <b>ЗАРАЗ</b>\n${waterLine}\n${powerLine}\n⚡💧 Разом: <b>${actualBoth?'✅ є':'❌ немає'}</b>`;
+  let out=`📍 <b>ЗАРАЗ</b>\n${waterLine}\n${powerLine}`;
   if(poss12||poss22){const x=[];if(poss12)x.push('1.2');if(poss22)x.push('2.2');out+=`\n🟡 Зараз діє зона можливого відключення: <b>${x.join(', ')}</b>`;}
   if(communityLine)out+='\n'+communityLine;
   return out;
@@ -66,9 +66,19 @@ export function dayBlock(label,date,a,updated=null,compact=false){
 }
 
 export function publicText(today,tomorrow,todayData,tomorrowData,minute,todayUpdated,tomorrowUpdated,manualWater=null,powerStatus=null,communityLine=null){
-  let s=`📍 <b>Чабани • вода та світло</b>\n\n${nowBlock(todayData,minute,manualWater,powerStatus,today,communityLine)}\n\nℹ️ Вода залежить від електропостачання групи <b>1.2</b>. Якщо у 1.2 немає світла — діє резервний графік води.\n\n${dayBlock('СЬОГОДНІ',today,todayData,todayUpdated,true)}`;
-  if(tomorrowData)s+=`\n\n━━━━━━━━━━━━━━\n\n${dayBlock('ЗАВТРА',tomorrow,tomorrowData,tomorrowUpdated,true)}`;
-  s+=`\n\n🔔 <b>Персональні нагадування та деталі — у боті.</b>`;
+  const compactDay=(label,date,a,updated)=>{
+    if(!a)return `📅 <b>${label} • ${humanDate(date)}</b> · ⏳ графік очікується`;
+    let x=`📅 <b>${label} • ${humanDate(date)}</b>`;
+    if(updated)x+=` · 🕒 ${updated}`;
+    x+=`\n💧 ${duration(total(a.water))}: ${formatIntervals(a.water)}`;
+    x+=`\n⚡ ${duration(total(a.p22))}: ${formatIntervals(a.p22)}`;
+    x+=`\n⚡💧 Разом ${duration(total(a.both))}: ${formatIntervals(a.both)}`;
+    if(a.best)x+=`\n⭐ Найкраще: ${formatIntervals([a.best])} (${duration(a.best[1]-a.best[0])})`;
+    return x;
+  };
+  let s=`📍 <b>Чабани • вода та світло</b>\n\n${nowBlock(todayData,minute,manualWater,powerStatus,today,communityLine)}\nℹ️ Вода залежить від світла групи <b>1.2</b>; якщо його немає — діє резервний графік.\n\n${compactDay('СЬОГОДНІ',today,todayData,todayUpdated)}`;
+  if(tomorrowData)s+=`\n\n${compactDay('ЗАВТРА',tomorrow,tomorrowData,tomorrowUpdated)}`;
+  s+=`\n\n🔔 <b>Деталі й нагадування — у боті.</b>`;
   return s;
 }
 
