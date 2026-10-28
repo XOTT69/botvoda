@@ -31,6 +31,9 @@ export async function ensureSchema(env){
     `CREATE TABLE IF NOT EXISTS publications (group_chat_id TEXT PRIMARY KEY,message_id INTEGER NOT NULL,bot_username TEXT NOT NULL,group_title TEXT,last_text TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`
   ];
   for(const sql of q)await env.DB.prepare(sql).run();
+  const publicationCols=await env.DB.prepare('PRAGMA table_info(publications)').all();
+  const publicationNames=new Set((publicationCols.results||[]).map(x=>x.name));
+  if(!publicationNames.has('photo_message_id'))await env.DB.prepare('ALTER TABLE publications ADD COLUMN photo_message_id INTEGER').run();
   const cols=await env.DB.prepare(`PRAGMA table_info(notification_settings)`).all();
   const have=new Set((cols.results||[]).map(x=>x.name));
   const add={
