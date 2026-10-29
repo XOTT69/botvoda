@@ -28,38 +28,32 @@ function hhmm(minutes){
   return m===1440?'24:00':String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
 }
 function chartUrl(days,dates,minuteNow){
-  const groups=days.map((day,i)=>({date:dates[i],title:i===0?'СЬОГОДНІ':'ЗАВТРА',items:timelineSegments(day)}));
-  const rows=[];
-  for(const g of groups)for(const seg of g.items)rows.push({date:g.date,day:g.title,start:hhmm(seg.start),end:hhmm(seg.end),on:seg.on});
-  const half=Math.ceil(rows.length/2),left=rows.slice(0,half),right=rows.slice(half);
-  const pairCount=Math.max(left.length,right.length);
-  const labels=[],leftData=[],rightData=[],leftColors=[],rightColors=[];
-  for(let i=0;i<pairCount;i++){
-    const l=left[i],r=right[i];
-    labels.push((l?l.start+' – '+l.end:'')+'          '+(r?r.start+' – '+r.end:''));
-    leftData.push(l?1:0);rightData.push(r?1:0);
-    leftColors.push(l?(l.on?'rgba(40,223,145,.22)':'rgba(255,92,112,.22)'):'rgba(0,0,0,0)');
-    rightColors.push(r?(r.on?'rgba(40,223,145,.22)':'rgba(255,92,112,.22)'):'rgba(0,0,0,0)');
-  }
-  const config={
-    type:'horizontalBar',
-    data:{labels,datasets:[
-      {label:'Ліва колонка',data:leftData,backgroundColor:leftColors,borderColor:left.map(x=>x?(x.on?'#28df91':'#ff5c70'):'rgba(0,0,0,0)'),borderWidth:2,barPercentage:.84,categoryPercentage:.9},
-      {label:'Права колонка',data:rightData,backgroundColor:rightColors,borderColor:right.map(x=>x?(x.on?'#28df91':'#ff5c70'):'rgba(0,0,0,0)'),borderWidth:2,barPercentage:.84,categoryPercentage:.9}
-    ]},
-    options:{
-      responsive:false,maintainAspectRatio:false,
-      layout:{padding:{left:30,right:30,top:22,bottom:22}},
-      title:{display:true,text:['⚡  ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','📍 ПОКРОВСЬКА 30Б  •  ГРУПА 2.2','● СВІТЛО Є                         ● ВІДКЛЮЧЕННЯ','ОНОВЛЕНО  •  '+new Intl.DateTimeFormat('uk-UA',{timeZone:TZ,day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date())],fontColor:'#f4f7ff',fontSize:25,fontStyle:'bold',padding:18},
-      legend:{display:false},tooltips:{enabled:false},
-      scales:{
-        xAxes:[{stacked:false,display:false,gridLines:{display:false},ticks:{display:false,min:0,max:1}}],
-        yAxes:[{stacked:false,gridLines:{display:false},ticks:{fontColor:'#f4f7ff',fontSize:17,fontStyle:'bold',autoSkip:false,padding:12}}]
-      }
-    }
-  };
-  const height=Math.max(700,Math.min(1600,320+pairCount*54));
-  return 'https://quickchart.io/chart?version=2.9.4&width=1400&height='+height+'&devicePixelRatio=2&format=png&backgroundColor=%23041124&c='+encodeURIComponent(JSON.stringify(config));
+  const day=days[0];
+  const segments=timelineSegments(day);
+  const half=Math.ceil(segments.length/2);
+  const left=segments.slice(0,half),right=segments.slice(half);
+  const escHtml=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const dateLabel=dates[0].split('-').reverse().join('.');
+  const updated=new Intl.DateTimeFormat('uk-UA',{timeZone:TZ,day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date());
+  const scheduleColumn=items=>'<TABLE BORDER="0" CELLBORDER="0" CELLSPACING="0" CELLPADDING="5" BGCOLOR="#07172B">'+items.map(seg=>{
+    const bg=seg.on?'#0D302D':'#301D2B';
+    const border=seg.on?'#1D9B70':'#C94D61';
+    const dot=seg.on?'#49E68D':'#FF6878';
+    const label=seg.on?'Світло є':'Вимкнення';
+    return '<TR><TD ALIGN="LEFT" WIDTH="155" CELLPADDING="10"><FONT FACE="Arial" COLOR="#F4F7FF" POINT-SIZE="16">'+hhmm(seg.start)+' – '+hhmm(seg.end)+'</FONT></TD><TD BGCOLOR="'+bg+'" COLOR="'+border+'" BORDER="1" CELLPADDING="10"><FONT FACE="Arial" COLOR="'+dot+'" POINT-SIZE="17">●</FONT><FONT FACE="Arial" COLOR="'+(seg.on?'#65E99D':'#FF7C89')+'" POINT-SIZE="16">  '+label+'</FONT></TD></TR>';
+  }).join('')+'</TABLE>';
+  const html='<TABLE BORDER="1" COLOR="#173653" CELLBORDER="0" CELLSPACING="0" CELLPADDING="0" BGCOLOR="#061529">'+
+    '<TR><TD COLSPAN="2" ALIGN="LEFT" CELLPADDING="22"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="12" CELLPADDING="0" BGCOLOR="#061529"><TR>'+
+    '<TD VALIGN="TOP"><FONT FACE="Arial" COLOR="#FFD52A" POINT-SIZE="42">⚡</FONT></TD>'+
+    '<TD ALIGN="LEFT" VALIGN="MIDDLE"><FONT FACE="Arial" COLOR="#F7F9FF" POINT-SIZE="30"><B>Графік відключень світла</B></FONT><BR/><FONT FACE="Arial" COLOR="#FFD52A" POINT-SIZE="23"><B>📍 Покровська 30Б</B></FONT><BR/><FONT FACE="Arial" COLOR="#B7CBE5" POINT-SIZE="16">Актуальний графік для вашої адреси</FONT></TD>'+
+    '<TD ALIGN="LEFT" VALIGN="MIDDLE" BGCOLOR="#0B2038" COLOR="#294966" BORDER="1" CELLPADDING="12"><FONT FACE="Arial" COLOR="#49E68D" POINT-SIZE="15">● Оновлено</FONT><BR/><FONT FACE="Arial" COLOR="#F4F7FF" POINT-SIZE="13">'+escHtml(updated)+'</FONT></TD>'+
+    '</TR></TABLE></TD></TR>'+
+    '<TR><TD COLSPAN="2" ALIGN="LEFT" BGCOLOR="#0A1B30" CELLPADDING="18"><FONT FACE="Arial" COLOR="#FFD52A" POINT-SIZE="25">▦</FONT>  <FONT FACE="Arial" COLOR="#F7F9FF" POINT-SIZE="23"><B>Сьогодні</B></FONT><BR/><FONT FACE="Arial" COLOR="#C5D5EA" POINT-SIZE="17">'+escHtml(dateLabel)+'</FONT></TD></TR>'+
+    '<TR><TD COLSPAN="2" CELLPADDING="12"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="14" CELLPADDING="0" BGCOLOR="#061529"><TR><TD VALIGN="TOP">'+scheduleColumn(left)+'</TD><TD WIDTH="1" BGCOLOR="#24415E"></TD><TD VALIGN="TOP">'+scheduleColumn(right)+'</TD></TR></TABLE></TD></TR>'+
+    '<TR><TD COLSPAN="2" ALIGN="LEFT" BGCOLOR="#041124" CELLPADDING="12"><FONT FACE="Arial" COLOR="#9DB4D0" POINT-SIZE="12">Графік може змінюватися у разі аварійних ситуацій</FONT></TD></TR>'+
+    '</TABLE>';
+  const dot='digraph G { graph [bgcolor="#041124", pad="0.08", margin="0", nodesep="0", ranksep="0"]; node [shape=plain, margin="0"]; schedule [label=<'+html+'>]; }';
+  return 'https://quickchart.io/graphviz?format=png&width=1400&height=1400&graph='+encodeURIComponent(dot);
 }
 async function chartDays(env){
   const n=localNow();
