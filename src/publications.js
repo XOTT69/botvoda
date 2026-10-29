@@ -36,7 +36,7 @@ function chartUrl(days,dates,minuteNow){
   const labels=[],leftData=[],rightData=[],leftColors=[],rightColors=[];
   for(let i=0;i<pairCount;i++){
     const l=left[i],r=right[i];
-    labels.push(l?l.start+' – '+l.end:'');
+    labels.push((l?l.start+' – '+l.end:'')+'          '+(r?r.start+' – '+r.end:''));
     leftData.push(l?1:0);rightData.push(r?1:0);
     leftColors.push(l?(l.on?'rgba(40,223,145,.22)':'rgba(255,92,112,.22)'):'rgba(0,0,0,0)');
     rightColors.push(r?(r.on?'rgba(40,223,145,.22)':'rgba(255,92,112,.22)'):'rgba(0,0,0,0)');
@@ -50,7 +50,7 @@ function chartUrl(days,dates,minuteNow){
     options:{
       responsive:false,maintainAspectRatio:false,
       layout:{padding:{left:30,right:30,top:22,bottom:22}},
-      title:{display:true,text:['⚡  ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','📍 ПОКРОВСЬКА 30Б  •  ГРУПА 2.2','ОНОВЛЕНО  •  '+new Intl.DateTimeFormat('uk-UA',{timeZone:TZ,day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date())],fontColor:'#f4f7ff',fontSize:25,fontStyle:'bold',padding:18},
+      title:{display:true,text:['⚡  ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','📍 ПОКРОВСЬКА 30Б  •  ГРУПА 2.2','● СВІТЛО Є                         ● ВІДКЛЮЧЕННЯ','ОНОВЛЕНО  •  '+new Intl.DateTimeFormat('uk-UA',{timeZone:TZ,day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date())],fontColor:'#f4f7ff',fontSize:25,fontStyle:'bold',padding:18},
       legend:{display:false},tooltips:{enabled:false},
       scales:{
         xAxes:[{stacked:false,display:false,gridLines:{display:false},ticks:{display:false,min:0,max:1}}],
