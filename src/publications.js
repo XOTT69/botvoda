@@ -50,7 +50,7 @@ function chartUrl(days,dates,minuteNow){
     options:{
       responsive:false,maintainAspectRatio:false,
       layout:{padding:{left:30,right:30,top:22,bottom:22}},
-      title:{display:true,text:['⚡  ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','📍 ПОКРОВСЬКА 30Б  •  ГРУПА 2.2'],fontColor:'#f4f7ff',fontSize:25,fontStyle:'bold',padding:18},
+      title:{display:true,text:['⚡  ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','📍 ПОКРОВСЬКА 30Б  •  ГРУПА 2.2','ОНОВЛЕНО  •  '+new Intl.DateTimeFormat('uk-UA',{timeZone:TZ,day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date())],fontColor:'#f4f7ff',fontSize:25,fontStyle:'bold',padding:18},
       legend:{display:false},tooltips:{enabled:false},
       scales:{
         xAxes:[{stacked:false,display:false,gridLines:{display:false},ticks:{display:false,min:0,max:1}}],
@@ -62,10 +62,9 @@ function chartUrl(days,dates,minuteNow){
   return 'https://quickchart.io/chart?version=2.9.4&width=1400&height='+height+'&devicePixelRatio=2&format=png&backgroundColor=%23041124&c='+encodeURIComponent(JSON.stringify(config));
 }
 async function chartDays(env){
-  const n=localNow(),tomorrow=addDays(n.date,1);
-  const [todayData,tomorrowData]=await Promise.all([loadDay(env,n.date),loadDay(env,tomorrow)]);
+  const n=localNow();
+  const todayData=await loadDay(env,n.date);
   const days=[todayData],dates=[n.date];
-  if(tomorrowData){days.push(tomorrowData);dates.push(tomorrow);}
   return {days,dates,url:chartUrl(days,dates,n.minute)};
 }
 async function publishOrUpdateChart(env,row){
