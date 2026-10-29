@@ -16,49 +16,65 @@ function timelineSegments(day){
   const out=[];let cursor=0;
   for(const [start,end] of on){
     const a=Math.max(0,Math.min(1440,Number(start))),b=Math.max(a,Math.min(1440,Number(end)));
-    if(a>cursor)out.push({minutes:a-cursor,on:false});
-    if(b>a)out.push({minutes:b-a,on:true});
+    if(a>cursor)out.push({start:cursor,end:a,on:false});
+    if(b>a)out.push({start:a,end:b,on:true});
     cursor=Math.max(cursor,b);
   }
-  if(cursor<1440)out.push({minutes:1440-cursor,on:false});
+  if(cursor<1440)out.push({start:cursor,end:1440,on:false});
   return out;
 }
-function chartUrl(days,dates){
-  const segments=days.map(timelineSegments),count=Math.max(1,...segments.map(x=>x.length));
-  const datasets=Array.from({length:count},(_,i)=>({
-    label:'Проміжок '+(i+1),
-    // Use hours (not minutes) so QuickChart's axis is legible without JS callbacks.
-    data:segments.map(x=>(x[i]?.minutes||0)/60),
-    backgroundColor:segments.map(x=>x[i]?.on?'#20d69a':'#ff5263'),
-    borderWidth:0,
-    barPercentage:0.72,
-    categoryPercentage:0.8
-  }));
+function hhmm(minutes){
+  const m=Math.max(0,Math.min(1440,Number(minutes)||0));
+  return m===1440?'24:00':String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+}
+function chartUrl(days,dates,minuteNow){
+  const rows=[];
+  days.forEach((day,di)=>{
+    for(const seg of timelineSegments(day)){
+      rows.push({
+        label:(di===0?'СЬОГОДНІ':'ЗАВТРА')+'  '+hhmm(seg.start)+' — '+hhmm(seg.end),
+        duration:(seg.end-seg.start)/60,
+        on:seg.on
+      });
+    }
+  });
+  const nowOn=rows.length?timelineSegments(days[0]).find(s=>minuteNow>=s.start&&minuteNow<s.end)?.on:false;
+  const statusText=nowOn?'ЗАРАЗ СВІТЛО Є':'ЗАРАЗ СВІТЛА НЕМАЄ';
   const config={
     type:'horizontalBar',
-    data:{labels:dates.map((d,i)=>(i===0?'СЬОГОДНІ • ':'ЗАВТРА • ')+d.split('-').reverse().join('.')),datasets},
+    data:{
+      labels:rows.map(r=>r.label),
+      datasets:[{
+        label:'Тривалість інтервалу',
+        data:rows.map(r=>r.duration),
+        backgroundColor:rows.map(r=>r.on?'#28df91':'#ff5c70'),
+        borderColor:rows.map(r=>r.on?'#28df91':'#ff5c70'),
+        borderWidth:0,
+        barPercentage:0.76,
+        categoryPercentage:0.88
+      }]
+    },
     options:{
       responsive:false,maintainAspectRatio:false,
-      layout:{padding:{left:28,right:32,top:26,bottom:24}},
-      title:{display:true,text:'ПОКРОВСЬКА 30Б • СВІТЛО 2.2',fontColor:'#f4f7ff',fontSize:30,fontStyle:'bold',padding:24},
+      layout:{padding:{left:26,right:28,top:24,bottom:22}},
+      title:{display:true,text:['ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','⚡ ПОКРОВСЬКА 30Б • ГРУПА 2.2',statusText],fontColor:'#f4f7ff',fontSize:25,fontStyle:'bold',padding:18},
       legend:{display:false},
       tooltips:{enabled:false},
       scales:{
-        xAxes:[{stacked:true,scaleLabel:{display:true,labelString:'ЧАС ДОБИ',fontColor:'#f4f7ff',fontSize:18},gridLines:{color:'rgba(255,255,255,.12)'},ticks:{min:0,max:24,stepSize:6,fontColor:'#f4f7ff',fontSize:18}}],
-        yAxes:[{stacked:true,gridLines:{display:false},ticks:{fontColor:'#f4f7ff',fontSize:20,fontStyle:'bold'}}]
+        xAxes:[{scaleLabel:{display:true,labelString:'ТРИВАЛІСТЬ ІНТЕРВАЛУ (ГОДИНИ)',fontColor:'#d9e7ff',fontSize:14},gridLines:{color:'rgba(255,255,255,.10)'},ticks:{beginAtZero:true,fontColor:'#d9e7ff',fontSize:13,maxTicksLimit:5}}],
+        yAxes:[{gridLines:{display:false},ticks:{fontColor:'#f4f7ff',fontSize:rows.length>16?13:16,fontStyle:'bold',autoSkip:false}}]
       }
-    },
-    plugins:[]
+    }
   };
-  const base='https://quickchart.io/chart';
-  return base+'?version=2.9.4&width=1000&height='+((days.length>1)?560:440)+'&devicePixelRatio=2&format=png&backgroundColor=%23101520&c='+encodeURIComponent(JSON.stringify(config));
+  const height=Math.max(560,Math.min(1500,240+rows.length*34));
+  return 'https://quickchart.io/chart?version=2.9.4&width=1200&height='+height+'&devicePixelRatio=2&format=png&backgroundColor=%23041124&c='+encodeURIComponent(JSON.stringify(config));
 }
 async function chartDays(env){
   const n=localNow(),tomorrow=addDays(n.date,1);
   const [todayData,tomorrowData]=await Promise.all([loadDay(env,n.date),loadDay(env,tomorrow)]);
   const days=[todayData],dates=[n.date];
   if(tomorrowData){days.push(tomorrowData);dates.push(tomorrow);}
-  return {days,dates,url:chartUrl(days,dates)};
+  return {days,dates,url:chartUrl(days,dates,n.minute)};
 }
 async function publishOrUpdateChart(env,row){
   const {days,dates,url}=await chartDays(env);
