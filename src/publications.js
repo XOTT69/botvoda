@@ -29,9 +29,6 @@ function hhmm(minutes){
 }
 function chartUrl(days,dates,minuteNow){
   const groups=days.map((day,i)=>({date:dates[i],title:i===0?'СЬОГОДНІ':'ЗАВТРА',items:timelineSegments(day)}));
-  const current=(groups[0]?.items||[]).find(s=>minuteNow>=s.start&&minuteNow<s.end);
-  const nowOn=Boolean(current?.on);
-  const updated=new Intl.DateTimeFormat('uk-UA',{timeZone:TZ,day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date());
   const rows=[];
   for(const g of groups)for(const seg of g.items)rows.push({date:g.date,day:g.title,start:hhmm(seg.start),end:hhmm(seg.end),on:seg.on});
   const half=Math.ceil(rows.length/2),left=rows.slice(0,half),right=rows.slice(half);
@@ -53,7 +50,7 @@ function chartUrl(days,dates,minuteNow){
     options:{
       responsive:false,maintainAspectRatio:false,
       layout:{padding:{left:30,right:30,top:22,bottom:22}},
-      title:{display:true,text:['⚡  ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','📍 ПОКРОВСЬКА 30Б  •  ГРУПА 2.2',nowOn?'●  ЗАРАЗ СВІТЛО Є':'●  ЗАРАЗ СВІТЛА НЕМАЄ','ОНОВЛЕНО  •  '+updated],fontColor:'#f4f7ff',fontSize:25,fontStyle:'bold',padding:18},
+      title:{display:true,text:['⚡  ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','📍 ПОКРОВСЬКА 30Б  •  ГРУПА 2.2'],fontColor:'#f4f7ff',fontSize:25,fontStyle:'bold',padding:18},
       legend:{display:false},tooltips:{enabled:false},
       scales:{
         xAxes:[{stacked:false,display:false,gridLines:{display:false},ticks:{display:false,min:0,max:1}}],
@@ -114,8 +111,9 @@ export async function setupGroupPublication(m,env){
     await env.DB.prepare('INSERT INTO publications(group_chat_id,message_id,bot_username,group_title,last_text) VALUES(?,?,?,?,?) ON CONFLICT(group_chat_id) DO UPDATE SET message_id=excluded.message_id,bot_username=excluded.bot_username,group_title=excluded.group_title,last_text=excluded.last_text,updated_at=CURRENT_TIMESTAMP').bind(chat,sent.result.message_id,username,m.chat.title||'',text).run();
     row=await env.DB.prepare('SELECT * FROM publications WHERE group_chat_id=?').bind(chat).first();
   }
-  // Тимчасово вимкнено публікацію графічної картинки на прохання власника. Текстове табло продовжує працювати.
-  return send(env,chat,'✅ Текстове табло закріплене. Публікацію картинки графіка тимчасово вимкнено.');
+  const chart=await publishOrUpdateChart(env,row);
+  if(!chart.ok)return send(env,chat,`⚠️ Текстове табло закріплене, але картинку не вдалося оновити.\\n<code>${esc(chart.error||'невідома помилка')}</code>`);
+  return send(env,chat,chart.created?'✅ Текстове табло й графік світла закріплені. Надалі оновлюватимуться на місці.':'✅ Текстове табло й закріплений графік світла перевірені.');
 }
 export async function refreshPublications(env,force=false){const r=await env.DB.prepare('SELECT * FROM publications').all();for(const row of r.results||[])try{await refreshPublicationRow(env,row,force)}catch(e){console.log('publication',e)}}
 export async function refreshOnePublication(env,chat,force=false){const row=await env.DB.prepare('SELECT * FROM publications WHERE group_chat_id=?').bind(chat).first();if(!row)return {ok:false,error:'Табло не підключене'};return refreshPublicationRow(env,row,force);}
@@ -129,7 +127,7 @@ async function refreshPublicationRow(env,row,force){
       textChanged=true;
     }else return {ok:false,error:r?.description||'Не вдалося оновити текстове табло'};
   }
-  // Image publication is temporarily disabled; continue refreshing the text dashboard only.
-  return {ok:true,unchanged:!textChanged,chart:{ok:true,disabled:true}};
+  const chart=await publishOrUpdateChart(env,row);
+  return {ok:true,unchanged:!textChanged,chart};
 }
 export async function checkGroupRights(m,env){const chat=String(m.chat.id),me=await safeJson(await tg(env,'getMe',{}));if(!me?.ok)return;const x=await getBotChatRights(env,chat,me.result.id),row=await env.DB.prepare('SELECT message_id,photo_message_id FROM publications WHERE group_chat_id=?').bind(chat).first();return send(env,chat,`🔎 <b>Перевірка</b>\nСтатус: <b>${esc(x?.status||'—')}</b>\nПублікувати: ${x?.can_post_messages===false?'❌':'✅'}\nРедагувати: ${x?.can_edit_messages===false?'❌':'✅'}\n📌 Текст message_id: <code>${row?.message_id||'немає'}</code>\n🖼 Картинка message_id: <code>${row?.photo_message_id||'немає'}</code>`);}
