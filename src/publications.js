@@ -28,45 +28,49 @@ function hhmm(minutes){
   return m===1440?'24:00':String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
 }
 function chartUrl(days,dates,minuteNow){
+  const segments=days.map((day,di)=>({date:dates[di],title:di===0?'СЬОГОДНІ':'ЗАВТРА',items:timelineSegments(day)}));
+  const todaySegments=segments[0]?.items||[];
+  const current=todaySegments.find(s=>minuteNow>=s.start&&minuteNow<s.end);
+  const nowOn=Boolean(current?.on);
   const rows=[];
-  days.forEach((day,di)=>{
-    for(const seg of timelineSegments(day)){
+  for(const group of segments){
+    for(const seg of group.items){
       rows.push({
-        label:(di===0?'СЬОГОДНІ':'ЗАВТРА')+'  '+hhmm(seg.start)+' — '+hhmm(seg.end),
-        duration:(seg.end-seg.start)/60,
-        on:seg.on
+        label:group.title+'  '+hhmm(seg.start)+' – '+hhmm(seg.end),
+        status:seg.on?'СВІТЛО Є':'ВІДКЛЮЧЕННЯ',
+        on:seg.on,
+        date:group.date
       });
     }
-  });
-  const nowOn=rows.length?timelineSegments(days[0]).find(s=>minuteNow>=s.start&&minuteNow<s.end)?.on:false;
-  const statusText=nowOn?'ЗАРАЗ СВІТЛО Є':'ЗАРАЗ СВІТЛА НЕМАЄ';
+  }
+  const now=new Date();
+  const updated=now.toLocaleString('uk-UA',{timeZone:TZ,day:'2-digit',month:'long',hour:'2-digit',minute:'2-digit',hour12:false});
   const config={
     type:'horizontalBar',
     data:{
       labels:rows.map(r=>r.label),
       datasets:[{
-        label:'Тривалість інтервалу',
-        data:rows.map(r=>r.duration),
-        backgroundColor:rows.map(r=>r.on?'#28df91':'#ff5c70'),
+        data:rows.map(()=>1),
+        backgroundColor:rows.map(r=>r.on?'rgba(40,223,145,0.20)':'rgba(255,92,112,0.20)'),
         borderColor:rows.map(r=>r.on?'#28df91':'#ff5c70'),
-        borderWidth:0,
-        barPercentage:0.76,
-        categoryPercentage:0.88
+        borderWidth:2,
+        barPercentage:0.78,
+        categoryPercentage:0.86
       }]
     },
     options:{
       responsive:false,maintainAspectRatio:false,
-      layout:{padding:{left:26,right:28,top:24,bottom:22}},
-      title:{display:true,text:['ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','⚡ ПОКРОВСЬКА 30Б • ГРУПА 2.2',statusText],fontColor:'#f4f7ff',fontSize:25,fontStyle:'bold',padding:18},
+      layout:{padding:{left:28,right:28,top:20,bottom:20}},
+      title:{display:true,text:['⚡  ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','📍 ПОКРОВСЬКА 30Б  •  ГРУПА 2.2',nowOn?'●  ЗАРАЗ СВІТЛО Є':'●  ЗАРАЗ СВІТЛА НЕМАЄ','ОНОВЛЕНО: '+updated],fontColor:'#f4f7ff',fontSize:25,fontStyle:'bold',padding:18},
       legend:{display:false},
       tooltips:{enabled:false},
       scales:{
-        xAxes:[{scaleLabel:{display:true,labelString:'ТРИВАЛІСТЬ ІНТЕРВАЛУ (ГОДИНИ)',fontColor:'#d9e7ff',fontSize:14},gridLines:{color:'rgba(255,255,255,.10)'},ticks:{beginAtZero:true,fontColor:'#d9e7ff',fontSize:13,maxTicksLimit:5}}],
-        yAxes:[{gridLines:{display:false},ticks:{fontColor:'#f4f7ff',fontSize:rows.length>16?13:16,fontStyle:'bold',autoSkip:false}}]
+        xAxes:[{display:false,gridLines:{display:false},ticks:{display:false,min:0,max:1}}],
+        yAxes:[{gridLines:{display:false},ticks:{fontColor:'#f4f7ff',fontSize:rows.length>18?14:17,fontStyle:'bold',autoSkip:false,padding:12}}]
       }
     }
   };
-  const height=Math.max(560,Math.min(1500,240+rows.length*34));
+  const height=Math.max(600,Math.min(1700,300+rows.length*38));
   return 'https://quickchart.io/chart?version=2.9.4&width=1200&height='+height+'&devicePixelRatio=2&format=png&backgroundColor=%23041124&c='+encodeURIComponent(JSON.stringify(config));
 }
 async function chartDays(env){
