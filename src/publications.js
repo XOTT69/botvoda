@@ -28,50 +28,41 @@ function hhmm(minutes){
   return m===1440?'24:00':String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
 }
 function chartUrl(days,dates,minuteNow){
-  const segments=days.map((day,di)=>({date:dates[di],title:di===0?'СЬОГОДНІ':'ЗАВТРА',items:timelineSegments(day)}));
-  const todaySegments=segments[0]?.items||[];
-  const current=todaySegments.find(s=>minuteNow>=s.start&&minuteNow<s.end);
+  const groups=days.map((day,i)=>({date:dates[i],title:i===0?'СЬОГОДНІ':'ЗАВТРА',items:timelineSegments(day)}));
+  const current=(groups[0]?.items||[]).find(s=>minuteNow>=s.start&&minuteNow<s.end);
   const nowOn=Boolean(current?.on);
+  const updated=new Intl.DateTimeFormat('uk-UA',{timeZone:TZ,day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date());
   const rows=[];
-  for(const group of segments){
-    for(const seg of group.items){
-      rows.push({
-        label:group.title+'  '+hhmm(seg.start)+' – '+hhmm(seg.end),
-        status:seg.on?'СВІТЛО Є':'ВІДКЛЮЧЕННЯ',
-        on:seg.on,
-        date:group.date
-      });
-    }
+  for(const g of groups)for(const seg of g.items)rows.push({date:g.date,day:g.title,start:hhmm(seg.start),end:hhmm(seg.end),on:seg.on});
+  const half=Math.ceil(rows.length/2),left=rows.slice(0,half),right=rows.slice(half);
+  const pairCount=Math.max(left.length,right.length);
+  const labels=[],leftData=[],rightData=[],leftColors=[],rightColors=[];
+  for(let i=0;i<pairCount;i++){
+    const l=left[i],r=right[i];
+    labels.push(l?l.start+' – '+l.end:'');
+    leftData.push(l?1:0);rightData.push(r?1:0);
+    leftColors.push(l?(l.on?'rgba(40,223,145,.22)':'rgba(255,92,112,.22)'):'rgba(0,0,0,0)');
+    rightColors.push(r?(r.on?'rgba(40,223,145,.22)':'rgba(255,92,112,.22)'):'rgba(0,0,0,0)');
   }
-  const now=new Date();
-  const updated=now.toLocaleString('uk-UA',{timeZone:TZ,day:'2-digit',month:'long',hour:'2-digit',minute:'2-digit',hour12:false});
   const config={
     type:'horizontalBar',
-    data:{
-      labels:rows.map(r=>r.label),
-      datasets:[{
-        data:rows.map(()=>1),
-        backgroundColor:rows.map(r=>r.on?'rgba(40,223,145,0.20)':'rgba(255,92,112,0.20)'),
-        borderColor:rows.map(r=>r.on?'#28df91':'#ff5c70'),
-        borderWidth:2,
-        barPercentage:0.78,
-        categoryPercentage:0.86
-      }]
-    },
+    data:{labels,datasets:[
+      {label:'Ліва колонка',data:leftData,backgroundColor:leftColors,borderColor:left.map(x=>x?(x.on?'#28df91':'#ff5c70'):'rgba(0,0,0,0)'),borderWidth:2,barPercentage:.84,categoryPercentage:.9},
+      {label:'Права колонка',data:rightData,backgroundColor:rightColors,borderColor:right.map(x=>x?(x.on?'#28df91':'#ff5c70'):'rgba(0,0,0,0)'),borderWidth:2,barPercentage:.84,categoryPercentage:.9}
+    ]},
     options:{
       responsive:false,maintainAspectRatio:false,
-      layout:{padding:{left:28,right:28,top:20,bottom:20}},
-      title:{display:true,text:['⚡  ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','📍 ПОКРОВСЬКА 30Б  •  ГРУПА 2.2',nowOn?'●  ЗАРАЗ СВІТЛО Є':'●  ЗАРАЗ СВІТЛА НЕМАЄ','ОНОВЛЕНО: '+updated],fontColor:'#f4f7ff',fontSize:25,fontStyle:'bold',padding:18},
-      legend:{display:false},
-      tooltips:{enabled:false},
+      layout:{padding:{left:30,right:30,top:22,bottom:22}},
+      title:{display:true,text:['⚡  ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','📍 ПОКРОВСЬКА 30Б  •  ГРУПА 2.2',nowOn?'●  ЗАРАЗ СВІТЛО Є':'●  ЗАРАЗ СВІТЛА НЕМАЄ','ОНОВЛЕНО  •  '+updated],fontColor:'#f4f7ff,fontSize:25,fontStyle:'bold',padding:18},
+      legend:{display:false},tooltips:{enabled:false},
       scales:{
-        xAxes:[{display:false,gridLines:{display:false},ticks:{display:false,min:0,max:1}}],
-        yAxes:[{gridLines:{display:false},ticks:{fontColor:'#f4f7ff',fontSize:rows.length>18?14:17,fontStyle:'bold',autoSkip:false,padding:12}}]
+        xAxes:[{stacked:false,display:false,gridLines:{display:false},ticks:{display:false,min:0,max:1}}],
+        yAxes:[{stacked:false,gridLines:{display:false},ticks:{fontColor:'#f4f7ff',fontSize:17,fontStyle:'bold',autoSkip:false,padding:12}}]
       }
     }
   };
-  const height=Math.max(600,Math.min(1700,300+rows.length*38));
-  return 'https://quickchart.io/chart?version=2.9.4&width=1200&height='+height+'&devicePixelRatio=2&format=png&backgroundColor=%23041124&c='+encodeURIComponent(JSON.stringify(config));
+  const height=Math.max(700,Math.min(1600,320+pairCount*54));
+  return 'https://quickchart.io/chart?version=2.9.4&width=1400&height='+height+'&devicePixelRatio=2&format=png&backgroundColor=%23041124&c='+encodeURIComponent(JSON.stringify(config));
 }
 async function chartDays(env){
   const n=localNow(),tomorrow=addDays(n.date,1);
