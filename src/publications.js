@@ -114,8 +114,8 @@ export async function setupGroupPublication(m,env){
     await env.DB.prepare('INSERT INTO publications(group_chat_id,message_id,bot_username,group_title,last_text) VALUES(?,?,?,?,?) ON CONFLICT(group_chat_id) DO UPDATE SET message_id=excluded.message_id,bot_username=excluded.bot_username,group_title=excluded.group_title,last_text=excluded.last_text,updated_at=CURRENT_TIMESTAMP').bind(chat,sent.result.message_id,username,m.chat.title||'',text).run();
     row=await env.DB.prepare('SELECT * FROM publications WHERE group_chat_id=?').bind(chat).first();
   }
-  const chart=await publishOrUpdateChart(env,row);
-  return send(env,chat,chart.ok?'✅ Текстове табло та картинка графіка закріплені.':'⚠️ Текстове табло закріплено, але картинку не вдалося оновити: <code>'+esc(chart.error||'невідома помилка')+'</code>');
+  // Тимчасово вимкнено публікацію графічної картинки на прохання власника. Текстове табло продовжує працювати.
+  return send(env,chat,'✅ Текстове табло закріплене. Публікацію картинки графіка тимчасово вимкнено.');
 }
 export async function refreshPublications(env,force=false){const r=await env.DB.prepare('SELECT * FROM publications').all();for(const row of r.results||[])try{await refreshPublicationRow(env,row,force)}catch(e){console.log('publication',e)}}
 export async function refreshOnePublication(env,chat,force=false){const row=await env.DB.prepare('SELECT * FROM publications WHERE group_chat_id=?').bind(chat).first();if(!row)return {ok:false,error:'Табло не підключене'};return refreshPublicationRow(env,row,force);}
@@ -129,9 +129,7 @@ async function refreshPublicationRow(env,row,force){
       textChanged=true;
     }else return {ok:false,error:r?.description||'Не вдалося оновити текстове табло'};
   }
-  // Keep the image synchronized even when only the pinned text changed (or a new day began).
-  const chart=await publishOrUpdateChart(env,row);
-  if(!chart.ok)return {ok:false,error:chart.error||'Не вдалося оновити картинку графіка'};
-  return {ok:true,unchanged:!textChanged,chart};
+  // Image publication is temporarily disabled; continue refreshing the text dashboard only.
+  return {ok:true,unchanged:!textChanged,chart:{ok:true,disabled:true}};
 }
 export async function checkGroupRights(m,env){const chat=String(m.chat.id),me=await safeJson(await tg(env,'getMe',{}));if(!me?.ok)return;const x=await getBotChatRights(env,chat,me.result.id),row=await env.DB.prepare('SELECT message_id,photo_message_id FROM publications WHERE group_chat_id=?').bind(chat).first();return send(env,chat,`🔎 <b>Перевірка</b>\nСтатус: <b>${esc(x?.status||'—')}</b>\nПублікувати: ${x?.can_post_messages===false?'❌':'✅'}\nРедагувати: ${x?.can_edit_messages===false?'❌':'✅'}\n📌 Текст message_id: <code>${row?.message_id||'немає'}</code>\n🖼 Картинка message_id: <code>${row?.photo_message_id||'немає'}</code>`);}
