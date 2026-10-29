@@ -45,7 +45,7 @@ function chartUrl(days,dates,minuteNow){
   const html='<TABLE BORDER="1" COLOR="#173653" CELLBORDER="0" CELLSPACING="0" CELLPADDING="0" BGCOLOR="#061529">'+
     '<TR><TD COLSPAN="2" ALIGN="LEFT" CELLPADDING="22"><TABLE BORDER="0" CELLBORDER="0" CELLSPACING="12" CELLPADDING="0" BGCOLOR="#061529"><TR>'+
     '<TD VALIGN="TOP"><FONT FACE="Arial" COLOR="#FFD52A" POINT-SIZE="42">⚡</FONT></TD>'+
-    '<TD ALIGN="LEFT" VALIGN="MIDDLE"><FONT FACE="Arial" COLOR="#F7F9FF" POINT-SIZE="30"><B>Графік відключень світла</B></FONT><BR/><FONT FACE="Arial" COLOR="#FFD52A" POINT-SIZE="23"><B>📍 Покровська 30Б</B></FONT><BR/><FONT FACE="Arial" COLOR="#B7CBE5" POINT-SIZE="16">Актуальний графік для вашої адреси</FONT></TD>'+
+    '<TD ALIGN="LEFT" VALIGN="MIDDLE"><FONT FACE="Arial" COLOR="#F7F9FF" POINT-SIZE="30"><B>Графік відключень світла</B></FONT><BR/><FONT FACE="Arial" COLOR="#FFD52A" POINT-SIZE="23"><B>📍 Покровська 30Б  •  ГРУПА 2.2</B></FONT><BR/><FONT FACE="Arial" COLOR="#B7CBE5" POINT-SIZE="16">Актуальний графік для вашої адреси</FONT></TD>'+
     '<TD ALIGN="LEFT" VALIGN="MIDDLE" BGCOLOR="#0B2038" COLOR="#294966" BORDER="1" CELLPADDING="12"><FONT FACE="Arial" COLOR="#49E68D" POINT-SIZE="15">● Оновлено</FONT><BR/><FONT FACE="Arial" COLOR="#F4F7FF" POINT-SIZE="13">'+escHtml(updated)+'</FONT></TD>'+
     '</TR></TABLE></TD></TR>'+
     '<TR><TD COLSPAN="2" ALIGN="LEFT" BGCOLOR="#0A1B30" CELLPADDING="18"><FONT FACE="Arial" COLOR="#FFD52A" POINT-SIZE="25">▦</FONT>  <FONT FACE="Arial" COLOR="#F7F9FF" POINT-SIZE="23"><B>Сьогодні</B></FONT><BR/><FONT FACE="Arial" COLOR="#C5D5EA" POINT-SIZE="17">'+escHtml(dateLabel)+'</FONT></TD></TR>'+
