@@ -62,6 +62,8 @@ async function chartDays(env){
   return {days,dates,url:chartUrl(days,dates,n.minute)};
 }
 async function publishOrUpdateChart(env,row){
+  // Temporarily disabled: do not publish or recreate the schedule image until explicitly re-enabled.
+  return {ok:true,skipped:true,disabled:true};
   const {days,dates,url}=await chartDays(env);
   if(!days[0])return {ok:true,skipped:true};
   // Photo is intentionally image-only: no Telegram caption beneath it.
@@ -106,7 +108,7 @@ export async function setupGroupPublication(m,env){
   }
   const chart=await publishOrUpdateChart(env,row);
   if(!chart.ok)return send(env,chat,`⚠️ Текстове табло закріплене, але картинку не вдалося оновити.\\n<code>${esc(chart.error||'невідома помилка')}</code>`);
-  return send(env,chat,chart.created?'✅ Текстове табло й графік світла закріплені. Надалі оновлюватимуться на місці.':'✅ Текстове табло й закріплений графік світла перевірені.');
+  return send(env,chat,'✅ Текстове табло закріплене. Публікацію картинки світла тимчасово вимкнено.');
 }
 export async function refreshPublications(env,force=false){const r=await env.DB.prepare('SELECT * FROM publications').all();for(const row of r.results||[])try{await refreshPublicationRow(env,row,force)}catch(e){console.log('publication',e)}}
 export async function refreshOnePublication(env,chat,force=false){const row=await env.DB.prepare('SELECT * FROM publications WHERE group_chat_id=?').bind(chat).first();if(!row)return {ok:false,error:'Табло не підключене'};return refreshPublicationRow(env,row,force);}
