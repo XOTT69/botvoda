@@ -58,17 +58,16 @@ async function chartDays(env){
   const [todayData,tomorrowData]=await Promise.all([loadDay(env,n.date),loadDay(env,tomorrow)]);
   const days=[todayData],dates=[n.date];
   if(tomorrowData){days.push(tomorrowData);dates.push(tomorrow);}
-  return {days,dates,url:chartUrl(days,dates),updated:fmtUpdated(todayData?.updatedAt,TZ)};
+  return {days,dates,url:chartUrl(days,dates)};
 }
 async function publishOrUpdateChart(env,row){
-  const {days,dates,url,updated}=await chartDays(env);
+  const {days,dates,url}=await chartDays(env);
   if(!days[0])return {ok:true,skipped:true};
-  const dateLabel=dates.map((d,i)=>(i===0?'Сьогодні':'Завтра')+' • '+d.split('-').reverse().join('.')).join('  |  ');
-  const caption='⚡ <b>Графік світла 2.2</b>\n📍 Покровська 30Б\n📅 '+esc(dateLabel)+(updated?'\n🕒 Дані графіка оновлено: '+esc(updated):'')+'\n\n🟢 Світло є  ·  🔴 Відключення';
+  // Photo is intentionally image-only: no Telegram caption beneath it.
   if(row.photo_message_id){
     const edited=await safeJson(await tg(env,'editMessageMedia',{
       chat_id:row.group_chat_id,message_id:Number(row.photo_message_id),
-      media:{type:'photo',media:url,caption,parse_mode:'HTML'}
+      media:{type:'photo',media:url}
     }));
     if(edited?.ok||String(edited?.description||'').toLowerCase().includes('message is not modified')){
       await tg(env,'pinChatMessage',{chat_id:row.group_chat_id,message_id:Number(row.photo_message_id),disable_notification:true});
@@ -79,7 +78,7 @@ async function publishOrUpdateChart(env,row){
       return {ok:false,error:edited?.description||'Не вдалося оновити картинку'};
     }
   }
-  const sent=await safeJson(await tg(env,'sendPhoto',{chat_id:row.group_chat_id,photo:url,caption,parse_mode:'HTML'}));
+  const sent=await safeJson(await tg(env,'sendPhoto',{chat_id:row.group_chat_id,photo:url}));
   if(!sent?.ok)return {ok:false,error:sent?.description||'Не вдалося опублікувати картинку'};
   const messageId=Number(sent.result.message_id);
   await tg(env,'pinChatMessage',{chat_id:row.group_chat_id,message_id:messageId,disable_notification:true});
@@ -105,7 +104,7 @@ export async function setupGroupPublication(m,env){
     row=await env.DB.prepare('SELECT * FROM publications WHERE group_chat_id=?').bind(chat).first();
   }
   const chart=await publishOrUpdateChart(env,row);
-  return send(env,chat,chart.ok?'✅ Текстове табло та окрема картинка графіка закріплені.':'⚠️ Текстове табло закріплено, але картинку не вдалося оновити: <code>'+esc(chart.error||'невідома помилка')+'</code>');
+  return send(env,chat,chart.ok?'✅ Текстове табло та картинка графіка закріплені.':'⚠️ Текстове табло закріплено, але картинку не вдалося оновити: <code>'+esc(chart.error||'невідома помилка')+'</code>');
 }
 export async function refreshPublications(env,force=false){const r=await env.DB.prepare('SELECT * FROM publications').all();for(const row of r.results||[])try{await refreshPublicationRow(env,row,force)}catch(e){console.log('publication',e)}}
 export async function refreshOnePublication(env,chat,force=false){const row=await env.DB.prepare('SELECT * FROM publications WHERE group_chat_id=?').bind(chat).first();if(!row)return {ok:false,error:'Табло не підключене'};return refreshPublicationRow(env,row,force);}
