@@ -27,7 +27,8 @@ function chartUrl(days,dates){
   const segments=days.map(timelineSegments),count=Math.max(1,...segments.map(x=>x.length));
   const datasets=Array.from({length:count},(_,i)=>({
     label:'Проміжок '+(i+1),
-    data:segments.map(x=>x[i]?.minutes||0),
+    // Use hours (not minutes) so QuickChart's axis is legible without JS callbacks.
+    data:segments.map(x=>(x[i]?.minutes||0)/60),
     backgroundColor:segments.map(x=>x[i]?.on?'#20d69a':'#ff5263'),
     borderWidth:0,
     barPercentage:0.72,
@@ -35,22 +36,22 @@ function chartUrl(days,dates){
   }));
   const config={
     type:'horizontalBar',
-    data:{labels:dates.map((d,i)=>i===0?'СЬОГОДНІ • '+d:'ЗАВТРА • '+d),datasets},
+    data:{labels:dates.map((d,i)=>(i===0?'СЬОГОДНІ • ':'ЗАВТРА • ')+d.split('-').reverse().join('.')),datasets},
     options:{
       responsive:false,maintainAspectRatio:false,
-      layout:{padding:{left:12,right:22,top:18,bottom:10}},
+      layout:{padding:{left:18,right:24,top:18,bottom:12}},
       title:{display:true,text:'ПОКРОВСЬКА 30Б • СВІТЛО 2.2',fontColor:'#f4f7ff',fontSize:22,fontStyle:'bold',padding:18},
       legend:{display:false},
       tooltips:{enabled:false},
       scales:{
-        xAxes:[{stacked:true,gridLines:{color:'rgba(255,255,255,.12)'},ticks:{min:0,max:1440,stepSize:180,fontColor:'#d7deef',callback:v=>String(Math.floor(v/60)).padStart(2,'0')+':'+String(v%60).padStart(2,'0')}}],
+        xAxes:[{stacked:true,scaleLabel:{display:true,labelString:'ГОДИНИ ДОБИ',fontColor:'#d7deef'},gridLines:{color:'rgba(255,255,255,.12)'},ticks:{min:0,max:24,stepSize:3,fontColor:'#d7deef'}}],
         yAxes:[{stacked:true,gridLines:{display:false},ticks:{fontColor:'#f4f7ff',fontSize:14,fontStyle:'bold'}}]
       }
     },
     plugins:[]
   };
   const base='https://quickchart.io/chart';
-  return base+'?width=1000&height='+((days.length>1)?440:330)+'&devicePixelRatio=2&format=png&backgroundColor=%23101520&c='+encodeURIComponent(JSON.stringify(config));
+  return base+'?version=2.9.4&width=1000&height='+((days.length>1)?440:330)+'&devicePixelRatio=2&format=png&backgroundColor=%23101520&c='+encodeURIComponent(JSON.stringify(config));
 }
 async function chartDays(env){
   const n=localNow(),tomorrow=addDays(n.date,1);
