@@ -53,7 +53,7 @@ function chartUrl(days,dates,minuteNow){
     options:{
       responsive:false,maintainAspectRatio:false,
       layout:{padding:{left:30,right:30,top:22,bottom:22}},
-      title:{display:true,text:['⚡  ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','📍 ПОКРОВСЬКА 30Б  •  ГРУПА 2.2',nowOn?'●  ЗАРАЗ СВІТЛО Є':'●  ЗАРАЗ СВІТЛА НЕМАЄ','ОНОВЛЕНО  •  '+updated],fontColor:'#f4f7ff,fontSize:25,fontStyle:'bold',padding:18},
+      title:{display:true,text:['⚡  ГРАФІК ВІДКЛЮЧЕНЬ СВІТЛА','📍 ПОКРОВСЬКА 30Б  •  ГРУПА 2.2',nowOn?'●  ЗАРАЗ СВІТЛО Є':'●  ЗАРАЗ СВІТЛА НЕМАЄ','ОНОВЛЕНО  •  '+updated],fontColor:'#f4f7ff',fontSize:25,fontStyle:'bold',padding:18},
       legend:{display:false},tooltips:{enabled:false},
       scales:{
         xAxes:[{stacked:false,display:false,gridLines:{display:false},ticks:{display:false,min:0,max:1}}],
