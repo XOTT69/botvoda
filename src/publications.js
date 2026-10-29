@@ -39,19 +39,19 @@ function chartUrl(days,dates){
     data:{labels:dates.map((d,i)=>(i===0?'СЬОГОДНІ • ':'ЗАВТРА • ')+d.split('-').reverse().join('.')),datasets},
     options:{
       responsive:false,maintainAspectRatio:false,
-      layout:{padding:{left:18,right:24,top:18,bottom:12}},
-      title:{display:true,text:'ПОКРОВСЬКА 30Б • СВІТЛО 2.2',fontColor:'#f4f7ff',fontSize:22,fontStyle:'bold',padding:18},
+      layout:{padding:{left:28,right:32,top:26,bottom:24}},
+      title:{display:true,text:'ПОКРОВСЬКА 30Б • СВІТЛО 2.2',fontColor:'#f4f7ff',fontSize:30,fontStyle:'bold',padding:24},
       legend:{display:false},
       tooltips:{enabled:false},
       scales:{
-        xAxes:[{stacked:true,scaleLabel:{display:true,labelString:'ГОДИНИ ДОБИ',fontColor:'#d7deef'},gridLines:{color:'rgba(255,255,255,.12)'},ticks:{min:0,max:24,stepSize:3,fontColor:'#d7deef'}}],
-        yAxes:[{stacked:true,gridLines:{display:false},ticks:{fontColor:'#f4f7ff',fontSize:14,fontStyle:'bold'}}]
+        xAxes:[{stacked:true,scaleLabel:{display:true,labelString:'ЧАС ДОБИ',fontColor:'#f4f7ff',fontSize:18},gridLines:{color:'rgba(255,255,255,.12)'},ticks:{min:0,max:24,stepSize:6,fontColor:'#f4f7ff',fontSize:18}}],
+        yAxes:[{stacked:true,gridLines:{display:false},ticks:{fontColor:'#f4f7ff',fontSize:20,fontStyle:'bold'}}]
       }
     },
     plugins:[]
   };
   const base='https://quickchart.io/chart';
-  return base+'?version=2.9.4&width=1000&height='+((days.length>1)?440:330)+'&devicePixelRatio=2&format=png&backgroundColor=%23101520&c='+encodeURIComponent(JSON.stringify(config));
+  return base+'?version=2.9.4&width=1000&height='+((days.length>1)?560:440)+'&devicePixelRatio=2&format=png&backgroundColor=%23101520&c='+encodeURIComponent(JSON.stringify(config));
 }
 async function chartDays(env){
   const n=localNow(),tomorrow=addDays(n.date,1);
