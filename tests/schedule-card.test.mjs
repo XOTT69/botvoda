@@ -131,3 +131,22 @@ test('D1 SQL claim excludes active and uncertain sends and fences an expired ren
     assert.equal((await store.get()).message_id,9);
   }finally{db.close();}
 });
+
+test('Preview denies bot endpoints and cron before touching production bindings',async()=>{
+  const {default:worker}=await import('../src/index.js');
+  const touched=[];
+  const env=new Proxy({PREVIEW_MODE:'on'}, {get(target,key){
+    if(key==='PREVIEW_MODE')return target[key];
+    touched.push(key);throw new Error('Production binding must not be accessed');
+  }});
+  for(const [method,path] of [['POST','/telegram'],['GET','/setup-webhook'],['GET','/webhook-info']]){
+    const response=await worker.fetch(new Request('https://preview.example'+path,{method}),env);
+    assert.ok([404,405].includes(response.status));
+  }
+  await worker.scheduled({},env,{waitUntil(){throw new Error('Cron must not run');}});
+  assert.deepEqual(touched,[]);
+  const health=await worker.fetch(new Request('https://preview.example/'),env);
+  assert.match(await health.text(),/демонстрація/);
+  assert.match(scheduleCardSvg({...payload,demo:true}),/ДЕМОНСТРАЦІЯ/);
+  assert.doesNotMatch(scheduleCardSvg(payload),/ДЕМОНСТРАЦІЯ/);
+});

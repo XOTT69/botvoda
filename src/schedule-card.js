@@ -115,7 +115,7 @@ function localUpdateTime(timestamp) {
   return get('day') + '.' + get('month') + '.' + get('year') + ' о ' + get('hour') + ':' + get('minute');
 }
 
-export function scheduleCardSvg({today, todayPeriods, tomorrow, tomorrowPeriods, updatedAt}) {
+export function scheduleCardSvg({today, todayPeriods, tomorrow, tomorrowPeriods, updatedAt, demo = false}) {
   if (tomorrow !== null && nextDate(today) !== tomorrow) throw new Error('Schedule card dates must be consecutive');
   if (todayPeriods !== null && validatedPeriods(todayPeriods) === null) throw new Error('Invalid schedule for today');
   if (tomorrowPeriods !== null && validatedPeriods(tomorrowPeriods) === null) throw new Error('Invalid schedule for tomorrow');
@@ -146,7 +146,7 @@ export function scheduleCardSvg({today, todayPeriods, tomorrow, tomorrowPeriods,
     '<text x="354" y="126" class="brand">Світло</text><text x="354" y="194" class="brand">Покровська</text>' +
     '<rect x="350" y="220" width="353" height="75" rx="38" fill="#ffd12d" filter="url(#glow)"/>' +
     '<text x="526" y="273" class="tagText" text-anchor="middle">Графік 2.2</text>' +
-    first.svg + second.svg + skyline(height - 220, .14) +
+    first.svg + second.svg + (demo ? '<rect x="0" y="298" width="1024" height="27" fill="#ffd12d"/><text x="512" y="318" style="fill:#08152b;font-size:18px;font-weight:700" text-anchor="middle">ДЕМОНСТРАЦІЯ · години вигадані</text>' : '') + skyline(height - 220, .14) +
     '<path d="M90 ' + (updateY - 1) + 'h155m534 0h155" stroke="#7396d2" stroke-opacity=".7" stroke-width="2"/>' +
 
     '<text x="512" y="' + (updateY + 9) + '" class="footer" text-anchor="middle">Оновлено: ' + escapeXml(localUpdateTime(updatedAt)) + '</text>' +

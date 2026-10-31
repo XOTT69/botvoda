@@ -236,3 +236,14 @@ Cloudflare D1, токени та ручні міграції не потрібн
 production D1 та зберігає два PNG з демонстраційними годинами в `outputs/`.
 Шрифти Noto Sans Regular/Bold взято з `notofonts/noto-fonts`, ліцензія OFL
 лежить у `src/assets/NotoSans-LICENSE.txt`.
+
+### Cloudflare PR Previews
+
+Для гілок Cloudflare Builds запускає `npx wrangler preview`. Блок `previews`
+у `wrangler.jsonc` підключає окремий renderer namespace та не підключає D1.
+`PREVIEW_MODE=on` залишає доступними лише текстову головну сторінку та
+`/preview-card.png?days=1` / `/preview-card.png?days=2`.
+Це зразки дизайну з вигаданими годинами й поміткою «ДЕМОНСТРАЦІЯ».
+Webhook/setup-маршрути та cron блокуються до будь-яких звернень до ресурсів
+бота. Telegram-відправки у Preview не виконуються. Production-конфігурація
+з D1, cron і вимкненою за замовчуванням карткою збережена окремо.

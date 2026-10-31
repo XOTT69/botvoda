@@ -31,5 +31,21 @@
         "ScheduleCardRenderer"
       ]
     }
-  ]
+  ],
+  "previews": {
+    "vars": {
+      "PREVIEW_MODE": "on",
+      "SCHEDULE_CARD_ENABLED": "off",
+      "DTEK_AUTO_SYNC": "off"
+    },
+    "durable_objects": {
+      "bindings": [
+        {
+          "name": "SCHEDULE_CARD_RENDERER",
+          "class_name": "ScheduleCardRenderer"
+        }
+      ]
+    },
+    "d1_databases": []
+  }
 }
