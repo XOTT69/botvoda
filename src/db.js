@@ -33,7 +33,12 @@ export async function ensureSchema(env){
   for(const sql of q)await env.DB.prepare(sql).run();
   const publicationCols=await env.DB.prepare('PRAGMA table_info(publications)').all();
   const publicationNames=new Set((publicationCols.results||[]).map(x=>x.name));
-  if(!publicationNames.has('photo_message_id'))await env.DB.prepare('ALTER TABLE publications ADD COLUMN photo_message_id INTEGER').run();
+  const photoColumns={photo_message_id:'INTEGER',photo_fingerprint:'TEXT',photo_state:'TEXT',
+    photo_attempt:'TEXT',photo_attempt_at:'INTEGER',photo_pinned:'INTEGER NOT NULL DEFAULT 0',photo_error:'TEXT'};
+  for(const [name,type] of Object.entries(photoColumns))if(!publicationNames.has(name)){
+    try{await env.DB.prepare(`ALTER TABLE publications ADD COLUMN ${name} ${type}`).run();}
+    catch(error){if(!String(error).toLowerCase().includes('duplicate column'))throw error;}
+  }
   const cols=await env.DB.prepare(`PRAGMA table_info(notification_settings)`).all();
   const have=new Set((cols.results||[]).map(x=>x.name));
   const add={

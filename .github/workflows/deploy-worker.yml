@@ -1,6 +1,16 @@
 name: Deploy water bot to Cloudflare
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Read-only inspection or deployment
+        type: choice
+        options: [inspect, deploy]
+        default: inspect
+      enable_schedule_card:
+        description: Enable the card only for the verified Pokrovska publication
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,5 +44,27 @@ jobs:
           fi
       - name: Install Wrangler CLI
         run: npm install --no-audit --no-fund
+      - name: Inspect production binding and publication without writes
+        env:
+          CARD_PREFLIGHT_OUTPUT: ${{ runner.temp }}/card-preflight.json
+        run: node scripts/card-production-preflight.mjs
       - name: Deploy existing botvoda Worker
+        if: inputs.mode == 'deploy' && !inputs.enable_schedule_card
         run: npm run deploy
+      - name: Deploy and enable the card for the verified group
+        if: inputs.mode == 'deploy' && inputs.enable_schedule_card
+        shell: bash
+        env:
+          PREFLIGHT_FILE: ${{ runner.temp }}/card-preflight.json
+        run: |
+          set -euo pipefail
+          npm run deploy -- --var SCHEDULE_CARD_ENABLED:on
+      - name: Observe the first scheduled card result
+        if: inputs.mode == 'deploy' && inputs.enable_schedule_card
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          timeout 330s npx wrangler tail botvoda --format pretty --search "schedule card"
+          result=$?
+          if [[ "$result" -ne 0 && "$result" -ne 124 ]]; then exit "$result"; fi

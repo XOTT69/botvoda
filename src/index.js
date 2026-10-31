@@ -1,3 +1,5 @@
+export {ScheduleCardRenderer} from './schedule-card-object.js';
+import {previewResponse} from './schedule-card-preview.js';
 import {parsePowerMessage,extractIntervals,normalize,complement,availability,total,formatIntervals,duration,fmt,addDays,localNow,humanDate} from './lib.js';
 import {ensureSchema,ensureUser,getSetting,setSetting,getManualWaterStatus,setManualWaterStatus,getManualPowerStatus,setManualPowerStatus,recordChannelPowerEvent,getEffectivePowerStatus,getPowerEvents,powerDayStats,getWaterIntervals,setWaterIntervals,getRawDay,loadDay,saveHistory,restoreHistory,saveScheduleGroup,createPending,getPending,deletePending,logChange,recentChanges,recentHistory,trackUserProfile,markNotificationsTouched,analyticsOverview,analyticsUsers,analyticsActivity} from './db.js';
 import {fmtUpdated,nowBlock,dayBlock,diffText} from './render.js';
@@ -14,6 +16,7 @@ const isAdminUser=(id,env)=>Boolean(env.ADMIN_TELEGRAM_ID)&&String(id||'')===Str
 
 export default {
   async fetch(req,env){
+    if(env.PREVIEW_MODE==='on')return previewResponse(req,env);
     const u=new URL(req.url);
     if(req.method==='GET'&&u.pathname==='/')return new Response('Chabany Water Bot: OK');
     if(req.method==='GET'&&u.pathname==='/setup-webhook')return setupWebhook(u,env);
@@ -24,7 +27,9 @@ export default {
     }
     return new Response('Not found',{status:404});
   },
-  async scheduled(c,env,ctx){ctx.waitUntil((async()=>{
+  async scheduled(c,env,ctx){
+    if(env.PREVIEW_MODE==='on')return;
+    ctx.waitUntil((async()=>{
     await ensureSchema(env);
     // Ingest confirmed DTEK schedules FIRST: personal alerts and the
     // pinned water+power dashboard must see the same new data.
