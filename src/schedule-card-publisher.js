@@ -25,10 +25,6 @@ export function photoStore(env,chat){
   };
 }
 
-function photoKeyboard(env){
-  return {inline_keyboard:[[{text:'📊 Відкрити моніторинг',
-    url:env.MONITORING_URL||'https://svitlo-dashboard-pwa.mikolenko-anton1.workers.dev/'}]]};
-}
 export function cardTelegram(env,chat,fetchFn=fetch){
   return async(method,{messageId,image}={})=>{
     if(!env.TELEGRAM_BOT_TOKEN)throw new Error('Missing existing bot token');
@@ -36,7 +32,7 @@ export function cardTelegram(env,chat,fetchFn=fetch){
     if(messageId)form.set('message_id',String(messageId));
     if(method==='pinChatMessage')form.set('disable_notification','true');
     else {
-      form.set('reply_markup',JSON.stringify(photoKeyboard(env)));
+      form.set('reply_markup',JSON.stringify({inline_keyboard:[]}));
       if(method==='sendPhoto'){
         form.set('disable_notification','true');
         form.set('photo',new Blob([image],{type:'image/png'}),'schedule-2-2.png');
