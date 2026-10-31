@@ -4,11 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/parser.test.mjs && node tests/features.test.mjs && node tests/dtek-sync.test.mjs && node tests/water-reports.test.mjs",
+    "test": "node tests/parser.test.mjs && node tests/features.test.mjs && node tests/dtek-sync.test.mjs && node tests/water-reports.test.mjs && node --test tests/schedule-card.test.mjs",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy --config ./wrangler.jsonc",
+    "check": "wrangler deploy --dry-run --config ./wrangler.jsonc",
+    "preview:card": "node scripts/preview-card.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.43.0"
+  },
+  "dependencies": {
+    "@cf-wasm/resvg": "0.3.1"
   }
 }

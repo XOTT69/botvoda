@@ -1,3 +1,4 @@
+export {ScheduleCardRenderer} from './schedule-card-object.js';
 import {parsePowerMessage,extractIntervals,normalize,complement,availability,total,formatIntervals,duration,fmt,addDays,localNow,humanDate} from './lib.js';
 import {ensureSchema,ensureUser,getSetting,setSetting,getManualWaterStatus,setManualWaterStatus,getManualPowerStatus,setManualPowerStatus,recordChannelPowerEvent,getEffectivePowerStatus,getPowerEvents,powerDayStats,getWaterIntervals,setWaterIntervals,getRawDay,loadDay,saveHistory,restoreHistory,saveScheduleGroup,createPending,getPending,deletePending,logChange,recentChanges,recentHistory,trackUserProfile,markNotificationsTouched,analyticsOverview,analyticsUsers,analyticsActivity} from './db.js';
 import {fmtUpdated,nowBlock,dayBlock,diffText} from './render.js';
