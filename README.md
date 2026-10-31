@@ -247,3 +247,13 @@ production D1 та зберігає два PNG з демонстраційним
 Webhook/setup-маршрути та cron блокуються до будь-яких звернень до ресурсів
 бота. Telegram-відправки у Preview не виконуються. Production-конфігурація
 з D1, cron і вимкненою за замовчуванням карткою збережена окремо.
+
+### Контрольований запуск у production
+
+Штатний workflow **Deploy water bot to Cloudflare** має режим `inspect`
+за замовчуванням. Він лише звіряє binding D1, знаходить єдине підключення
+Покровської та показує поточну версію deployment, без записів у D1 чи Telegram.
+`mode=deploy` розгортає код; прапорець `enable_schedule_card=true` вмикає
+картку лише для перевіреного `group_chat_id` через `SCHEDULE_CARD_CHAT_ID`.
+Вже збережені Cloudflare Secrets використовуються всередині GitHub Actions;
+їхні значення не виводяться в журнал і не передаються в код репозиторію.

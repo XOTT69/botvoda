@@ -12,6 +12,8 @@ export async function buildPublicText(env){const n=localNow(),today=n.date,tomor
 
 async function publishOrUpdateChart(env,row){
   if(env.SCHEDULE_CARD_ENABLED!=='on')return {ok:true,skipped:true,disabled:true};
+  if(env.SCHEDULE_CARD_CHAT_ID&&String(env.SCHEDULE_CARD_CHAT_ID)!==String(row.group_chat_id))
+    return {ok:true,skipped:true,otherChat:true};
   try {
     const {publishScheduleCard}=await import('./schedule-card-publisher.js');
     return await publishScheduleCard(env,row);
