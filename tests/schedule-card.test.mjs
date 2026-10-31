@@ -96,13 +96,13 @@ test('definite send rejection and render failure can be retried later',async()=>
   await runCardPublication(g.args);assert.equal(g.row.photo_state,'idle');assert.equal(g.calls.length,0);
 });
 
-test('Telegram uploads PNG with the existing token, channel and monitoring button',async()=>{
+test('Telegram uploads PNG with the existing token/channel and removes the inline keyboard',async()=>{
   let url,options;
   const telegram=cardTelegram({TELEGRAM_BOT_TOKEN:'123:existing'},'-10042',async(u,o)=>{url=u;options=o;return Response.json({ok:true,result:{message_id:777}});});
   await telegram('sendPhoto',{image:new Uint8Array([137,80,78,71])});
   assert.equal(url,'https://api.telegram.org/bot123:existing/sendPhoto');
   assert.equal(options.body.get('chat_id'),'-10042');assert.equal(options.body.get('disable_notification'),'true');
-  assert.ok(options.body.get('photo') instanceof Blob);assert.match(options.body.get('reply_markup'),/Відкрити моніторинг/);
+  assert.ok(options.body.get('photo') instanceof Blob);assert.deepEqual(JSON.parse(options.body.get('reply_markup')),{inline_keyboard:[]});
   assert.equal(options.body.get('caption'),null);
 });
 
