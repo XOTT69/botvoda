@@ -163,3 +163,38 @@ test('runtime target selection accepts only one Pokrovska 30B publication',async
   assert.equal(selectCardTarget(rows,'-2'),'-2');
   assert.throws(()=>selectCardTarget(rows,'-999'),/not uniquely linked/);
 });
+
+test('compact card durations and totals cover a full day without inventing unknown hours',async()=>{
+  const {daySchedule,cardDuration}=await import('../src/schedule-card.js');
+  const day=daySchedule([[720,1170]]);
+  assert.deepEqual(day.rows,[{start:0,end:720,on:true},{start:720,end:1170,on:false},{start:1170,end:1440,on:true}]);
+  assert.equal(day.on,990);assert.equal(day.off,450);assert.equal(day.on+day.off,1440);
+  assert.equal(cardDuration(990),'16 год 30 хв');assert.equal(cardDuration(450),'7 год 30 хв');
+  assert.equal(cardDuration(720),'12 год');assert.equal(cardDuration(0),'0 хв');
+  assert.deepEqual(daySchedule([]),{rows:[{start:0,end:1440,on:true}],on:1440,off:0});
+  assert.deepEqual(daySchedule([[0,1440]]),{rows:[{start:0,end:1440,on:false}],on:0,off:1440});
+  assert.equal(daySchedule(null).on,null);assert.equal(daySchedule(null).off,null);
+});
+
+test('compact date range handles year boundaries and daily totals are printed separately',()=>{
+  const value=cardPayload([[720,1170]],[[360,810]],new Date('2026-10-31T22:20:00Z'));
+  const svg=scheduleCardSvg(value);
+  assert.match(svg,/Графік на 2 дні/);assert.match(svg,/1–2 листопада \(нд – пн\)/);
+  assert.equal((svg.match(/data-total-on="990"/g)||[]).length,2);
+  assert.equal((svg.match(/data-total-off="450"/g)||[]).length,2);
+  assert.match(svg,/\(7 год 30 хв\)/);
+  const single=scheduleCardSvg({...value,tomorrow:null,tomorrowPeriods:null});
+  assert.match(single,/Графік на сьогодні/);assert.doesNotMatch(single,/data-day="tomorrow"/);
+  const yearEnd=cardPayload([],[],new Date('2026-12-31T12:00:00Z'));
+  assert.match(scheduleCardSvg(yearEnd),/31 грудня 2026 – 1 січня 2027/);
+});
+
+test('dense schedules grow the image without dropping any interval or exceeding photo dimensions',()=>{
+  const off=Array.from({length:24},(_,i)=>[i*60,i*60+30]);
+  const value=cardPayload(off,off,new Date('2026-10-31T22:20:00Z'));
+  const svg=scheduleCardSvg(value);
+  assert.equal((svg.match(/data-state="/g)||[]).length,96);
+  const dimensions=svg.match(/width="(\d+)" height="(\d+)"/);
+  assert.ok(Number(dimensions[1])+Number(dimensions[2])<=10000);
+  assert.ok(Number(dimensions[2])/Number(dimensions[1])<20);
+});

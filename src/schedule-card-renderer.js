@@ -5,7 +5,7 @@ import notoBold from './assets/noto-sans-bold.bin';
 
 export async function renderScheduleCardPng(payload) {
   const renderer=await Resvg.async(scheduleCardSvg(payload),{
-    fitTo:{mode:'width',value:1024},
+    fitTo:{mode:'width',value:1200},
     font:{
       fontBuffers:[notoRegular,notoBold]
         .map(buffer=>new Uint8Array(buffer)),

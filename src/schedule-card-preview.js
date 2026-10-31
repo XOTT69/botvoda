@@ -13,8 +13,8 @@ export async function previewResponse(request,env){
   if(url.pathname!=='/preview-card.png')return new Response('Not found',{status:404});
   if(!env.SCHEDULE_CARD_RENDERER)return new Response('Preview renderer unavailable',{status:503});
   const twoDays=url.searchParams.get('days')!=='1';
-  const payload={...cardPayload([[480,660],[960,1140]],twoDays?[[480,660]]:null,
-    new Date('2026-10-31T14:00:00Z')),demo:true};
+  const payload={...cardPayload([[720,1170]],twoDays?[[360,810]]:null,
+    new Date('2026-10-31T22:20:00Z')),demo:true};
   const stub=env.SCHEDULE_CARD_RENDERER.get(env.SCHEDULE_CARD_RENDERER.idFromName('preview-card'));
   return stub.fetch('https://renderer.internal/',{method:'POST',body:JSON.stringify(payload)});
 }
