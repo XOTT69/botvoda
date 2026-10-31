@@ -111,7 +111,24 @@ export async function runCardPublication({store,payload,render,telegram,now=Date
   }
 }
 
+export function selectCardTarget(rows,configuredId){
+  if(configuredId){
+    const matches=rows.filter(row=>String(row.group_chat_id)===String(configuredId));
+    if(matches.length!==1)throw new Error('Configured schedule card channel is not uniquely linked');
+    return String(matches[0].group_chat_id);
+  }
+  const matches=rows.filter(row=>{
+    const title=String(row.group_title||'').normalize('NFKC').toLocaleLowerCase('uk-UA');
+    return /покровськ/u.test(title)&&/(?:^|[^\d])30\s*[-–—]?\s*[бb](?=$|[^\p{L}\p{N}])/u.test(title);
+  });
+  if(matches.length!==1)throw new Error('Expected exactly one linked Pokrovska 30B channel; refusing photo publication');
+  return String(matches[0].group_chat_id);
+}
+
 export async function publishScheduleCard(env,row){
+  const linked=await env.DB.prepare('SELECT group_chat_id,group_title FROM publications').all();
+  const target=selectCardTarget(linked.results||[],env.SCHEDULE_CARD_CHAT_ID);
+  if(String(row.group_chat_id)!==target)return {ok:true,skipped:true,otherChat:true};
   const now=new Date(),today=localNow(now,'Europe/Kyiv').date;
   // Use confirmed 2.2 directly: the water subgroup 1.2 must not decide
   // whether a valid power timetable can appear in this card.

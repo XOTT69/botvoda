@@ -16,7 +16,9 @@ async function publishOrUpdateChart(env,row){
     return {ok:true,skipped:true,otherChat:true};
   try {
     const {publishScheduleCard}=await import('./schedule-card-publisher.js');
-    return await publishScheduleCard(env,row);
+    const result=await publishScheduleCard(env,row);
+    if(!result.skipped)console.log('schedule card result',JSON.stringify({chatId:String(row.group_chat_id),...result}));
+    return result;
   } catch(error) {
     console.warn('schedule card failed:',String(error?.message||error));
     return {ok:false,error:'Не вдалося оновити картку. Дивись журнал Worker.'};

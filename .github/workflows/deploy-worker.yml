@@ -58,9 +58,13 @@ jobs:
           PREFLIGHT_FILE: ${{ runner.temp }}/card-preflight.json
         run: |
           set -euo pipefail
-          card_chat_id=$(node -e 'const f=require("fs"); console.log(JSON.parse(f.readFileSync(process.env.PREFLIGHT_FILE)).target.group_chat_id)')
-          if [[ ! "$card_chat_id" =~ ^-[0-9]+$ ]]; then
-            echo "::error::Invalid verified group ID"
-            exit 1
-          fi
-          npm run deploy -- --var SCHEDULE_CARD_ENABLED:on --var "SCHEDULE_CARD_CHAT_ID:$card_chat_id"
+          npm run deploy -- --var SCHEDULE_CARD_ENABLED:on
+      - name: Observe the first scheduled card result
+        if: inputs.mode == 'deploy' && inputs.enable_schedule_card
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          timeout 330s npx wrangler tail botvoda --format pretty --search "schedule card"
+          result=$?
+          if [[ "$result" -ne 0 && "$result" -ne 124 ]]; then exit "$result"; fi

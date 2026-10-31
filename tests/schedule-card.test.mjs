@@ -150,3 +150,16 @@ test('Preview denies bot endpoints and cron before touching production bindings'
   assert.match(scheduleCardSvg({...payload,demo:true}),/ДЕМОНСТРАЦІЯ/);
   assert.doesNotMatch(scheduleCardSvg(payload),/ДЕМОНСТРАЦІЯ/);
 });
+
+test('runtime target selection accepts only one Pokrovska 30B publication',async()=>{
+  const {selectCardTarget}=await import('../src/schedule-card-publisher.js');
+  const rows=[{group_chat_id:'-1',group_title:'💧 Вода Чабани'},
+    {group_chat_id:'-2',group_title:'Світло Покровська 30Б'},
+    {group_chat_id:'-3',group_title:'Світло Покровська 30В'}];
+  assert.equal(selectCardTarget(rows),'-2');
+  assert.equal(selectCardTarget([{group_chat_id:'-2',group_title:'СВІТЛО ПОКРОВСЬКА 30-Б'}]),'-2');
+  assert.throws(()=>selectCardTarget(rows.filter(r=>r.group_chat_id!=='-2')),/exactly one/);
+  assert.throws(()=>selectCardTarget([...rows,{group_chat_id:'-4',group_title:'Покровська 30б'}]),/exactly one/);
+  assert.equal(selectCardTarget(rows,'-2'),'-2');
+  assert.throws(()=>selectCardTarget(rows,'-999'),/not uniquely linked/);
+});
