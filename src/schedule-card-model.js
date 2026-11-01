@@ -1,5 +1,5 @@
 import {addDays,localNow} from './lib.js';
-export const CARD_VERSION=6;
+export const CARD_VERSION=7;
 export const nextDate=date=>addDays(date,1);
 export function validDate(date){
   return typeof date==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(date)&&
