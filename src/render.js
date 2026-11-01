@@ -82,6 +82,43 @@ export function publicText(today,tomorrow,todayData,tomorrowData,minute,todayUpd
   return s;
 }
 
+// The photo already carries the daily electricity schedule. Keep its companion
+// text focused on current status and planned water availability.
+export function waterPublicText(today,tomorrow,todayData,tomorrowData,minute,todayUpdated,tomorrowUpdated,manualWater=null,powerStatus=null){
+  const scheduled=todayData?statusAt(todayData,minute).current:null;
+  const known=status=>status&&['on','off'].includes(status.state);
+  const stateLabel=on=>`<b>${on?'є':'немає'}</b>`;
+  let water='💧 Вода — <b>немає даних</b>';
+  if(known(manualWater)){
+    const stamp=manualWater.updatedLabel?` о ${manualWater.updatedLabel}`:'';
+    water=`💧 Вода ${stateLabel(manualWater.state==='on')} — вручну${stamp}`;
+  }else if(scheduled)water=`💧 Вода ${stateLabel(scheduled.water)} — за графіком`;
+
+  let power='💡 Світло — <b>немає даних</b>';
+  if(known(powerStatus)){
+    let source='фактично';
+    if(powerStatus.source==='manual')source='вручну'+(powerStatus.updatedLabel?` о ${powerStatus.updatedLabel}`:'');
+    else if(powerStatus.source==='channel'&&Number.isFinite(powerStatus.eventMinute)){
+      const date=powerStatus.eventDate&&powerStatus.eventDate!==today?`${humanDate(powerStatus.eventDate)} `:'';
+      source=`підтверджено ${date}о ${fmt(powerStatus.eventMinute)}`;
+    }
+    power=`💡 Світло ${stateLabel(powerStatus.state==='on')} — ${source}`;
+  }else if(scheduled)power=`💡 Світло ${stateLabel(scheduled.power)} — за графіком`;
+
+  const dateLabel=date=>new Intl.DateTimeFormat('uk-UA',{timeZone:'UTC',day:'numeric',month:'long'}).format(new Date(date+'T12:00:00Z'));
+  const waterDay=(label,date,data)=>{
+    const heading=`📅 <b>${label}, ${dateLabel(date)}</b>`;
+    if(!data)return heading+'\n⏳ Графік ще не опублікований.';
+    const windows=data.water.length?data.water.map(([start,end])=>`${fmt(start)}–${fmt(end)}`).join('\n'):'За графіком води немає.';
+    return `${heading}\n${windows}\nРазом: <b>${duration(total(data.water))}</b>`;
+  };
+  let text=`📍 <b>Чабани • вода та світло</b>\n\n<b>Зараз</b>\n${water}\n${power}`;
+  if(todayData&&inIntervals(todayData.possible12||[],minute))text+='\n🟡 Можливі зміни подачі води через відключення світла.';
+  text+=`\n\n<b>💧 Коли є вода за графіком</b>\n\n${waterDay('Сьогодні',today,todayData)}`;
+  if(tomorrowData)text+=`\n\n${waterDay('Завтра',tomorrow,tomorrowData)}`;
+  return text+'\n\nℹ️ Фактична наявність води може відрізнятися від графіка.\n\n🔔 <b>Деталі й нагадування — у боті.</b>\n⚡ <b>Графік світла — на закріпленій картинці.</b>';
+}
+
 export function summaryText(label,date,a){
   if(!a)return `📅 <b>${label} • ${humanDate(date)}</b>\nГрафік ще не завантажено.`;
   let s=`📅 <b>${label} • ${humanDate(date)}</b>\n💧 Вода: <b>${duration(total(a.water))}</b>\n⚡ Світло 2.2: <b>${duration(total(a.p22))}</b>\n⚡💧 Разом: <b>${duration(total(a.both))}</b>`;

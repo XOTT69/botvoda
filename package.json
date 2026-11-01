@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/parser.test.mjs && node tests/features.test.mjs && node tests/dtek-sync.test.mjs && node tests/water-reports.test.mjs && node --test tests/schedule-card.test.mjs",
+    "test": "node tests/parser.test.mjs && node tests/features.test.mjs && node tests/dtek-sync.test.mjs && node tests/water-reports.test.mjs && node --test tests/schedule-card.test.mjs tests/publication.test.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --config ./wrangler.jsonc",
     "check": "wrangler deploy --dry-run --config ./wrangler.jsonc",
