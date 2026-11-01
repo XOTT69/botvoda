@@ -56,7 +56,7 @@ function brandBulb(){
     '<path d="M224 202h28c-2 11-26 11-28 0Z" fill="url(#steel)" stroke="#86ccff" stroke-width="1.5"/></g>';
 }
 function bottomRibbons(height){
-  return `<g transform="translate(0 ${height-130})" aria-label="Синьо-жовті стрічки">`+
+  return `<g transform="translate(0 ${height-110})" aria-label="Синьо-жовті стрічки">`+
     '<path d="M0 27c101-44 132 26 252 23C144 40 105 92 0 117Z" fill="url(#ribbonBlue)"/>'+
     '<path d="M0 68c105-48 153 34 283 33C161 69 107 96 0 154Z" fill="url(#ribbonGold)"/>'+
     '<path d="M0 27c101-44 132 26 252 23" fill="none" stroke="#21baff" stroke-width="2"/>'+
@@ -139,7 +139,7 @@ export function scheduleCardSvg(payload){
   const first=dayCard('Сьогодні',today,todayPeriods,235);
   const second=tomorrow===null?null:dayCard('Завтра',tomorrow,tomorrowPeriods,235+first.height+16);
   const end=235+first.height+(second?16+second.height:0);
-  const height=Math.max(second?1200:850,end+210),updateY=height-180;
+  const height=end+150,updateY=end+54;
   const stars=Array.from({length:64},(_,i)=>`<circle cx="${(i*181+47)%1190+5}" cy="${(i*103+29)%(height-16)+8}" r="${i%11===0?2:1.2}" fill="#dceeff" opacity=".72"/>`).join('');
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${height}" viewBox="0 0 ${W} ${height}" data-layout="final-v4"><title>${second?'Графік на 2 дні':'Графік на сьогодні'}</title><desc>${xml(dateRange(today,tomorrow))}</desc>`+
     '<defs><linearGradient id="bg" x2="0%" y2="100%"><stop stop-color="#04162f"/><stop offset=".4" stop-color="#073367"/><stop offset="1" stop-color="#03162f"/></linearGradient>'+
@@ -170,5 +170,5 @@ export function scheduleCardSvg(payload){
     `<path d="M80 ${updateY-8}H337m526 0h257" stroke="#84ccff" stroke-width="2"/>`+
     `<g transform="translate(395 ${updateY-14})" fill="none" stroke="#a5dcff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M17-5a18 18 0 0 0-32-6M-17 5a18 18 0 0 0 32 6M17-17v12H5M-17 17V5h12"/></g>`+
     `<text x="435" y="${updateY}" class="updated">Оновлено: ${xml(updatedLabel(updatedAt))}</text>`+
-    `<text x="600" y="${height-62}" class="note" text-anchor="middle">Плановий графік · під час екстрених відключень може не діяти</text></svg>`;
+    `<text x="600" y="${height-53}" class="note" text-anchor="middle">Плановий графік · під час екстрених відключень може не діяти</text></svg>`;
 }
