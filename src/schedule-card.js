@@ -170,6 +170,5 @@ export function scheduleCardSvg(payload){
     `<path d="M80 ${updateY-8}H337m526 0h257" stroke="#84ccff" stroke-width="2"/>`+
     `<g transform="translate(395 ${updateY-14})" fill="none" stroke="#a5dcff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M17-5a18 18 0 0 0-32-6M-17 5a18 18 0 0 0 32 6M17-17v12H5M-17 17V5h12"/></g>`+
     `<text x="435" y="${updateY}" class="updated">Оновлено: ${xml(updatedLabel(updatedAt))}</text>`+
-    `<path transform="translate(600 ${height-125}) scale(.8)" d="M0 20C-42-5-30-40-9-24-4-21 0-15 0-15 10-36 42-32 36-7 33 4 18 15 0 30Z" fill="url(#gold)" stroke="#fff38a" stroke-width="2" filter="url(#goldGlow)"/>`+
     `<text x="600" y="${height-62}" class="note" text-anchor="middle">Плановий графік · під час екстрених відключень може не діяти</text></svg>`;
 }
