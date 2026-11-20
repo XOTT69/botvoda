@@ -8,7 +8,7 @@ import {setupGroupPublication,refreshPublications,refreshOnePublication,checkGro
 import {notifyMenu,notificationCallback,notifyAll} from './notifications.js';
 import {syncDtekSchedules} from './dtek-sync.js';
 import {getCommunityWaterReports,saveCommunityWaterReport,pruneCommunityWaterReports,communityWaterLine,reportTimeKyiv} from './water-reports.js';
-import {ensureWaterWidgetWebhook,sendWaterWidget,handleWaterWidgetQuery} from './water-widget.js';
+import {ensureWaterWidgetWebhook,sendWaterWidget,handleWaterWidgetQuery,getWaterWidgetDelivery} from './water-widget.js';
 
 const KB={keyboard:[[{text:'💧 Вода'}],[{text:'📅 Сьогодні'},{text:'🌅 Завтра'}],[{text:'📋 Графік'},{text:'🔔 Сповіщення'}],[{text:'💧 Стан води'},{text:'ℹ️ Допомога'}]],resize_keyboard:true,is_persistent:true};
 const TZ='Europe/Kyiv';
@@ -353,13 +353,14 @@ async function showPending(env,chat,msgId=null){
 
 async function systemStatus(env,chat,msgId){
   const now=localNow(),tomorrow=addDays(now.date,1);
-  const [pubs,users,todayDay,tomorrowDay,lastSuccess,lastResult]=await Promise.all([
+  const [pubs,users,todayDay,tomorrowDay,lastSuccess,lastResult,widgetDelivery]=await Promise.all([
     env.DB.prepare('SELECT COUNT(*) AS c FROM publications').first(),
     env.DB.prepare('SELECT COUNT(*) AS c FROM notification_settings').first(),
     loadDay(env,now.date),
     loadDay(env,tomorrow),
     getSetting(env,'dtek_auto_last_success'),
-    getSetting(env,'dtek_auto_last_result')
+    getSetting(env,'dtek_auto_last_result'),
+    getWaterWidgetDelivery(env)
   ]);
   let syncText='⏳ Нову синхронізацію ще не підтверджено';
   if(lastSuccess){
@@ -386,7 +387,9 @@ async function systemStatus(env,chat,msgId){
     syncText+confirmation+'\n'+
     '📡 Автооновлення: '+(env.DTEK_AUTO_SYNC==='off'?'вимкнено':'кожні 5 хв')+'\n\n'+
     'Підключених каналів/груп: <b>'+(pubs?.c||0)+'</b>\n'+
-    'Користувачів сповіщень: <b>'+(users?.c||0)+'</b>';
+    'Користувачів сповіщень: <b>'+(users?.c||0)+'</b>\n\n'+
+    'Картка води: '+(env.WATER_WIDGET_ENABLED==='off'?'вимкнена':widgetDelivery?.status==='sent'?'✅ Telegram підтвердив надсилання':widgetDelivery?.status==='blocked'?'⛔ Telegram обмежив доступ':widgetDelivery?.status==='failed'?'⚠️ Помилка надсилання':'ще немає підтвердженого надсилання')+
+    (widgetDelivery?.code?'\n<code>'+escapeHtml(widgetDelivery.code)+'</code>':'');
   return edit(env,chat,msgId,text,{
     inline_keyboard:[[{text:'⬅️ Назад',callback_data:'adm:home'}]]
   });
