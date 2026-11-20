@@ -21,16 +21,16 @@ function draw(){
  $('next').textContent=s.x?(s.x[1]?'Подача':'Перерва')+' о '+hm(s.x[0]%1440)+(s.x[0]>=1440?' завтра':''):'Інших підтверджених змін немає';
  $('nextHint').textContent=stale?'Натисніть ↻ для оновлення':s.x?'За графіком · через '+span(Math.max(0,s.x[0]-s.m)):'Час за Києвом';
  ['today','tomorrow'].forEach((id,k)=>{$(id).classList.toggle('chosen',s.k===k);});
- $('day').textContent='Подача · '+label(s.d);$('total').textContent=s.h===null?'немає графіка':span(s.h||0)||'0 год';
- const xs=unpack(s.w),track=$('track');track.innerHTML='';$('legend').textContent=s.w===null?'Немає графіка':'Бірюзове — вода · сіре — перерва'+(s.p?' · жовте — можливі зміни':'');
+ $('day').textContent=(s.w===null?'Резерв · ':'Подача · ')+label(s.d);$('total').textContent=s.h===null?'немає графіка':span(s.h||0)||'0 год';
+ const xs=unpack(s.w??s.f),track=$('track');track.innerHTML='';$('legend').textContent=s.w===null?'Резервні години · очікуємо ДТЕК':'Бірюзове — вода · сіре — перерва'+(s.p?' · жовте — можливі зміни':'');
  function bar(a,b,cls){const el=document.createElement('div');el.className=cls;el.style.left=a/14.4+'%';el.style.width=(b-a)/14.4+'%';track.appendChild(el)}
- xs.forEach(x=>bar(x[0],x[1],'segment'));unpack(s.p).forEach(x=>bar(x[0],x[1],'possible'));
+ if(s.w!==null)xs.forEach(x=>bar(x[0],x[1],'segment'));unpack(s.p).forEach(x=>bar(x[0],x[1],'possible'));
  if(!s.k&&!stale){const el=document.createElement('div');el.className='needle';el.style.left=s.m/14.4+'%';track.appendChild(el)}
  
  const ranges=$('ranges');ranges.innerHTML='';
- if(s.w===null||!xs.length){const el=document.createElement('p');el.className='empty';el.textContent=s.w===null?'Чекаємо підтвердження ДТЕК. Резерв: '+unpack(s.f).map(x=>hm(x[0])+'–'+hm(x[1])).join(' · '):'На цю добу подачу не заплановано.';ranges.appendChild(el);el.style.gridColumn='1 / -1'}
- xs.slice(page*4,page*4+4).forEach(x=>{const el=document.createElement('div');el.className='range';el.textContent=hm(x[0])+'–'+hm(x[1]);ranges.appendChild(el)});
- $('more').hidden=xs.length<=4;$('more').textContent='Інші години → '+(page+1)+'/'+Math.ceil(xs.length/4);
+ if(!xs.length){const el=document.createElement('p');el.className='empty';el.textContent=s.w===null?'Чекаємо підтвердження ДТЕК.':'На цю добу подачу не заплановано.';ranges.appendChild(el);el.style.gridColumn='1 / -1'}
+ xs.slice(page*2,page*2+2).forEach(x=>{const el=document.createElement('div');el.className='range';el.textContent=hm(x[0])+'–'+hm(x[1]);ranges.appendChild(el)});
+ $('more').hidden=xs.length<=2;$('more').textContent='Інші години → '+(page+1)+'/'+Math.ceil(xs.length/2);
  const a=s.a||[0,0],n=a[0]+a[1];$('reports').textContent=!n?'Немає свіжих повідомлень':a[0]>=2&&a[0]>=3*a[1]?'Переважно: вода є':a[1]>=2&&a[1]>=3*a[0]?'Переважно: води немає':a[0]&&a[1]?'Є суперечливі повідомлення':'Замало повідомлень для висновку';
  $('on').textContent='💧 Є вода'+(n?' · '+a[0]:'');$('off').textContent='Немає води'+(n?' · '+a[1]:'');
  $('updated').textContent='Перевірено '+new Date(s.t*1000).toLocaleTimeString('uk-UA',{timeZone:'Europe/Kyiv',hour:'2-digit',minute:'2-digit'})+' · Київ';
@@ -39,6 +39,6 @@ function pending(value){busy=value;['refresh','today','tomorrow','on','off'].for
 function ask(action,quiet=false){if(busy||!W)return;if(W.isPreview)return;pending(true);if(!quiet)tell('Оновлюємо…');try{const req=W.request('w:'+action);last=Date.now();req.then(a=>{if(a.result){const r=JSON.parse(a.result);if(!quiet)tell(r.message||'Оновлено')}}).catch(()=>tell('Не вдалося оновити. Натисніть ↻.')).finally(()=>pending(false))}catch{pending(false);tell('Не вдалося оновити. Натисніть ↻.')}}
 if(W){accept(W.chatData);W.onEvent('chatDataChanged',()=>accept(W.chatData));W.onEvent('activated',draw);W.ready();if(!W.isPreview)ask('refresh:'+(s.k||0),true)}
 
-$('today').onclick=()=>ask('today');$('tomorrow').onclick=()=>ask('tomorrow');$('refresh').onclick=()=>ask('refresh:'+(s.k||0));$('on').onclick=()=>ask('on:'+(s.k||0));$('off').onclick=()=>ask('off:'+(s.k||0));$('more').onclick=()=>{page=(page+1)%Math.ceil(unpack(s.w).length/4);draw()};
+$('today').onclick=()=>ask('today');$('tomorrow').onclick=()=>ask('tomorrow');$('refresh').onclick=()=>ask('refresh:'+(s.k||0));$('on').onclick=()=>ask('on:'+(s.k||0));$('off').onclick=()=>ask('off:'+(s.k||0));$('more').onclick=()=>{page=(page+1)%Math.ceil(unpack(s.w??s.f).length/2);draw()};
 setInterval(()=>{if(W&&W.isActive&&!W.isPreview){draw();if(Date.now()-last>=60000)ask('refresh:'+(s.k||0),true)}},60000);
 </script>`;
