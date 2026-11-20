@@ -1,0 +1,10 @@
+import {WATER_WIDGET_HTML} from './water-widget-html.js';
+import {demoWaterState} from './water-widget-model.js';
+
+// Browser-only stand-in for TelegramWidget, never sent to Telegram.
+export function waterWidgetPreview({dark=false,selected=0,kind='on'}={}){
+  const state=demoWaterState(selected,kind);
+  return `<!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Чабани · демо картки води</title>
+  <style>:root{color-scheme:${dark?'dark':'light'};--tg-theme-bg-color:${dark?'#182533':'#fff'};--tg-theme-text-color:${dark?'#e7eff5':'#162a35'};--tg-theme-hint-color:${dark?'#9cabb8':'#6a7e89'};--tg-theme-secondary-bg-color:${dark?'#223443':'#f0f4f6'};--tg-theme-link-color:#2686ad;--tg-theme-section-separator-color:${dark?'#314552':'#e5ecef'}}html{background:${dark?'#0e1720':'#e8eff0'}}body{max-width:384px;border-radius:20px;margin:32px auto!important;background:var(--tg-theme-bg-color);box-shadow:0 12px 50px #00000015}html:after{content:'ДЕМОНСТРАЦІЯ · ГОДИНИ ВИГАДАНІ';display:block;text-align:center;font:10px system-ui;color:var(--tg-theme-hint-color);letter-spacing:1px;margin:16px}</style>
+  <script>const handlers={},samples=${JSON.stringify([demoWaterState(0,kind),demoWaterState(1,kind)])};Date.now=()=>${state.t*1000};window.TelegramWidget={chatData:${JSON.stringify(JSON.stringify(state))},isActive:true,isPreview:false,onEvent:(name,fn)=>handlers[name]=fn,ready(){},request:async action=>{window.__requests=(window.__requests||[]).concat(action);if(window.__fail)throw new Error('demo failure');const state=JSON.parse(window.TelegramWidget.chatData);state.k=action==='w:tomorrow'?1:action==='w:today'?0:state.k;Object.assign(state,samples[state.k],{a:state.a});if(action==='w:on:'+state.k)state.a[0]++;if(action==='w:off:'+state.k)state.a[1]++;window.TelegramWidget.chatData=JSON.stringify(state);handlers.chatDataChanged?.();return {result:JSON.stringify({message:'Демонстрація: зміни не надсилаються в Telegram.'})}}};</script></head><body>${WATER_WIDGET_HTML}</body></html>`;
+}

@@ -8,8 +8,9 @@ import {setupGroupPublication,refreshPublications,refreshOnePublication,checkGro
 import {notifyMenu,notificationCallback,notifyAll} from './notifications.js';
 import {syncDtekSchedules} from './dtek-sync.js';
 import {getCommunityWaterReports,saveCommunityWaterReport,pruneCommunityWaterReports,communityWaterLine,reportTimeKyiv} from './water-reports.js';
+import {ensureWaterWidgetWebhook,sendWaterWidget,handleWaterWidgetQuery} from './water-widget.js';
 
-const KB={keyboard:[[{text:'📅 Сьогодні'},{text:'🌅 Завтра'}],[{text:'📋 Графік'},{text:'🔔 Сповіщення'}],[{text:'💧 Стан води'}],[{text:'ℹ️ Допомога'}]],resize_keyboard:true,is_persistent:true};
+const KB={keyboard:[[{text:'💧 Вода'}],[{text:'📅 Сьогодні'},{text:'🌅 Завтра'}],[{text:'📋 Графік'},{text:'🔔 Сповіщення'}],[{text:'💧 Стан води'},{text:'ℹ️ Допомога'}]],resize_keyboard:true,is_persistent:true};
 const TZ='Europe/Kyiv';
 const escapeHtml=s=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const isAdminUser=(id,env)=>Boolean(env.ADMIN_TELEGRAM_ID)&&String(id||'')===String(env.ADMIN_TELEGRAM_ID);
@@ -18,7 +19,7 @@ export default {
   async fetch(req,env){
     if(env.PREVIEW_MODE==='on')return previewResponse(req,env);
     const u=new URL(req.url);
-    if(req.method==='GET'&&u.pathname==='/')return new Response('Chabany Water Bot: OK');
+    if(req.method==='GET'&&u.pathname==='/')return new Response('Chabany Water Bot: OK\nWater widget: v1');
     if(req.method==='GET'&&u.pathname==='/setup-webhook')return setupWebhook(u,env);
     if(req.method==='GET'&&u.pathname==='/webhook-info')return webhookInfo(env);
     if(req.method==='POST'&&u.pathname==='/telegram'){
@@ -31,6 +32,7 @@ export default {
     if(env.PREVIEW_MODE==='on')return;
     ctx.waitUntil((async()=>{
     await ensureSchema(env);
+    try{if(env.WATER_WIDGET_ENABLED!=='off')await ensureWaterWidgetWebhook(env);}catch{console.warn('water widget: webhook upgrade pending');}
     // Ingest confirmed DTEK schedules FIRST: personal alerts and the
     // pinned water+power dashboard must see the same new data.
     try {
@@ -46,6 +48,7 @@ export default {
 };
 
 async function handle(up,env){
+  if(up.widget_query)return handleWaterWidgetQuery(up.widget_query,env);
   if(up.callback_query)return callback(up.callback_query,env);
   const m=up.message||up.channel_post;if(!m?.chat?.id)return;
   const chat=String(m.chat.id),text=(m.text||m.caption||'').trim(),privateChat=m.chat.type==='private',admin=isAdminUser(m.from?.id,env);
@@ -63,13 +66,14 @@ async function handle(up,env){
   const startMatch=text.match(/^\/start(?:@\w+)?(?:\s+(\S+))?/i);
   const startSource=startMatch?(['chabany','water-report'].includes(startMatch[1])?'chabany':'direct'):null;
   await trackUserProfile(env,m.from,startSource);
-  if(text.startsWith('/start')){if(startMatch?.[1]==='water-report')return communityWaterMenu(env,chat);const x=admin?'\n\n👑 Для керування: /admin':'';return send(env,chat,'💧⚡ <b>Чабани: вода + світло</b>\n\nВода залежить від групи <b>1.2</b>. Ваше світло — група <b>2.2</b>.\nТут можна дивитися графік, налаштовувати нагадування та повідомляти про фактичний стан води.'+x,{reply_markup:KB});}
+  if(startMatch||text==='💧 Вода'||/^\/(dashboard|widget|waterapp)(?:@\w+)?$/i.test(text))return sendWaterWidget(env,chat,0,KB);
   if(text==='📅 Сьогодні'||text==='/today')return showDay(env,chat,localNow().date,true);
   if(text==='🌅 Завтра'||text==='/tomorrow')return showDay(env,chat,addDays(localNow().date,1),false);
   if(text==='📋 Графік'||text==='/schedule')return showRaw(env,chat,localNow().date);
   if(text==='🔔 Сповіщення'||text==='/notifications'){await markNotificationsTouched(env,chat);return notifyMenu(env,chat);}
-  if(text==='💧 Стан води'||/^\/(waterstatus|reportwater)(?:@\w+)?$/i.test(text))return communityWaterMenu(env,chat);
-  if(text==='ℹ️ Допомога'||text==='/help')return send(env,chat,'📌 У каналі — короткий актуальний статус.\n🔔 Тут — персональні нагадування, сьогодні/завтра та деталі.\n\nГрафіки ДТЕК сьогодні/завтра завантажуються автоматично кожні 5 хвилин, коли вони підтверджені. Резервний графік води керується окремо.\n\n💧 «Стан води» — повідомлення мешканців про наявність води; це не показники датчика й не офіційний факт.',{reply_markup:KB});
+  if(/^\/reportwater(?:@\w+)?$/i.test(text))return communityWaterMenu(env,chat);
+  if(text==='💧 Стан води'||/^\/waterstatus(?:@\w+)?$/i.test(text))return sendWaterWidget(env,chat,0,KB);
+  if(text==='ℹ️ Допомога'||text==='/help')return send(env,chat,'💧 /dashboard — інтерактивна картка води прямо в чаті: зараз, графік сьогодні/завтра, повідомлення мешканців. Потрібна актуальна версія Telegram.\n\n📌 У каналі — короткий актуальний статус.\n🔔 Тут — персональні нагадування та деталі.\n\nГрафіки ДТЕК оновлюються кожні 5 хвилин після підтвердження. Резервні години води керуються окремо.\n\nГрафік — прогноз, повідомлення — слова мешканців. Фактична наявність води у будинках може відрізнятися.\n\nАдміністратору: /admin. Текстові команди: /today, /tomorrow, /schedule.',{reply_markup:KB});
   if(/^\/syncdtek$/i.test(text)&&admin){
     try{
       const r=await syncDtekSchedules(env);
