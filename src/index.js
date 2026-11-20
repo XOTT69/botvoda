@@ -19,7 +19,7 @@ export default {
   async fetch(req,env){
     if(env.PREVIEW_MODE==='on')return previewResponse(req,env);
     const u=new URL(req.url);
-    if(req.method==='GET'&&u.pathname==='/')return new Response('Chabany Water Bot: OK\nWater widget: v1');
+    if(req.method==='GET'&&u.pathname==='/')return new Response('Chabany Water Bot: OK\nWater widget: v1.1');
     if(req.method==='GET'&&u.pathname==='/setup-webhook')return setupWebhook(u,env);
     if(req.method==='GET'&&u.pathname==='/webhook-info')return webhookInfo(env);
     if(req.method==='POST'&&u.pathname==='/telegram'){
