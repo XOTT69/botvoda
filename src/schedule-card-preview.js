@@ -1,13 +1,16 @@
 import {cardPayload} from './schedule-card-model.js';
+import {waterWidgetPreview} from './water-widget-preview.js';
 // A review-only Preview: no D1 binding, Telegram calls, webhooks or cron work.
 export async function previewResponse(request,env){
   const url=new URL(request.url);
   if(request.method!=='GET')return new Response('Preview is read-only',{status:405});
+  if(url.pathname==='/preview-water-widget.html')return new Response(waterWidgetPreview({dark:url.searchParams.get('theme')==='dark',selected:url.searchParams.get('day')==='tomorrow'?1:0,kind:url.searchParams.get('kind')||'on'}),{headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
   if(url.pathname==='/')return new Response(
     'Botvoda preview — лише демонстрація дизайну.\n'+
     'Години вигадані, це не актуальний графік.\n\n'+
     '/preview-card.png?days=1 — сьогодні\n'+
     '/preview-card.png?days=2 — сьогодні та завтра\n\n'+
+    '/preview-water-widget.html — інтерактивна картка води (демо)\n\n'+
     'Telegram, cron і production D1 тут не підключені.\n',
     {headers:{'Content-Type':'text/plain; charset=utf-8','Cache-Control':'no-store'}});
   if(url.pathname!=='/preview-card.png')return new Response('Not found',{status:404});
