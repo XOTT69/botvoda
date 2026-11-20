@@ -3,7 +3,7 @@ import {test} from 'node:test';
 import {deflateSync} from 'node:zlib';
 import {WATER_WIDGET_HTML} from '../src/water-widget-html.js';
 import {waterDay,nextWaterChange,waterWidgetState,serializeWaterState,packIntervals,unpackIntervals,demoWaterState} from '../src/water-widget-model.js';
-import {sendWaterWidget,handleWaterWidgetQuery,ensureWaterWidgetWebhook} from '../src/water-widget.js';
+import {sendWaterWidget,handleWaterWidgetQuery,ensureWaterWidgetWebhook,getWaterWidgetDelivery} from '../src/water-widget.js';
 
 const rule={intervals:[[360,540],[720,840],[1080,1320]],updatedAt:null};
 const day=water=>({date:'2026-11-20',water,fallback:rule.intervals,possible:[],updatedAt:null});
@@ -44,25 +44,25 @@ test('HTML and heavily fragmented state fit Telegram byte budgets',()=>{
 });
 
 function fixture(ready=true){
-  const calls=[],sqlCalls=[];
+  const calls=[],sqlCalls=[],settings=new Map(ready?[['water_widget_webhook_v1','ready']]:[]);
   const env={TELEGRAM_BOT_TOKEN:'test',TELEGRAM_WEBHOOK_SECRET:'test',DB:{prepare(sql){
     const stmt={bind(...args){this.args=args;return this},async first(){
       sqlCalls.push(sql);
-      if(sql.includes('SELECT value FROM app_settings'))return ready?{value:'ready'}:null;
+      if(sql.includes('SELECT value FROM app_settings'))return settings.has(this.args?.[0])?{value:settings.get(this.args[0])}:null;
       if(sql.includes('FROM water_rule_versions'))return {effective_date:'2026-10-15',intervals_json:JSON.stringify(rule.intervals)};
       if(sql.includes('on_count'))return {on_count:2,off_count:0};
       return null;
     },async all(){
       if(sql.includes('FROM schedules WHERE'))return {results:[{group_name:'1.2',intervals_json:'[[0,360],[840,1080]]',created_at:'2026-11-20 10:00:00'}]};
       return {results:[]};
-    },async run(){sqlCalls.push({sql,args:this.args});return {meta:{changes:1}}}};
+    },async run(){sqlCalls.push({sql,args:this.args});if(sql.startsWith('INSERT INTO app_settings'))settings.set(this.args[0],this.args[1]);return {meta:{changes:1}}}};
     return stmt;
   }}};
   const fetchFn=async(url,options)=>{
     const method=url.split('/').at(-1),payload=JSON.parse(options.body);calls.push({method,payload});
     return Response.json({ok:true,result:method==='getWebhookInfo'?{url:'https://water.example/telegram',allowed_updates:['message','callback_query','edited_message'],max_connections:12}:true});
   };
-  return {env,calls,sqlCalls,fetchFn};
+  return {env,calls,sqlCalls,fetchFn,settings};
 }
 
 test('existing webhook gains widget queries and preserves URL, custom updates and pending delivery',async()=>{
@@ -86,6 +86,40 @@ test('sendWidget carries real schedule state and query permission; declined API 
     globalThis.fetch=async(url,options)=>url.endsWith('/sendWidget')?Response.json({ok:false,description:'Unavailable'},{status:400}):f.fetchFn(url,options);
     await sendWaterWidget(f.env,'123');
     assert.ok(f.calls.some(x=>x.method==='sendMessage'));
+  }finally{globalThis.fetch=old}
+});
+
+test('Telegram eligibility rejection is recorded without user data and suppresses repeated failed sends',async()=>{
+  const f=fixture(),old=globalThis.fetch;let attempts=0;
+  globalThis.fetch=async(url,options)=>{
+    if(url.endsWith('/sendWidget')){attempts++;return Response.json({ok:false,error_code:400,description:'Bad Request: INPUT_MEDIA_WIDGET_NOT_ALLOWED'},{status:400})}
+    return f.fetchFn(url,options);
+  };
+  try{
+    await sendWaterWidget(f.env,'123');
+    const status=await getWaterWidgetDelivery(f.env);
+    assert.equal(status.status,'blocked');assert.equal(status.code,'INPUT_MEDIA_WIDGET_NOT_ALLOWED');
+    assert.ok(Date.parse(status.retryAt)>Date.now());assert.equal(Object.keys(status).sort().join(','),'at,code,retryAt,status');
+    const fallback=f.calls.find(x=>x.method==='sendMessage').payload;
+    assert.match(fallback.text,/Telegram поки не дозволяє/);assert.doesNotMatch(fallback.text,/спробувати ще раз/);
+    assert.equal(fallback.reply_markup.inline_keyboard[0][0].callback_data,'wr:on');
+    await sendWaterWidget(f.env,'456');assert.equal(attempts,1);
+    f.settings.set('water_widget_delivery_v1',JSON.stringify({...status,retryAt:new Date(Date.now()-1).toISOString()}));
+    globalThis.fetch=async(url,options)=>{if(url.endsWith('/sendWidget'))attempts++;return f.fetchFn(url,options)};
+    await sendWaterWidget(f.env,'123');assert.equal(attempts,2);
+    assert.equal((await getWaterWidgetDelivery(f.env)).status,'sent');
+  }finally{globalThis.fetch=old}
+});
+
+test('other API failures do not disable widgets for all users',async()=>{
+  const f=fixture(),old=globalThis.fetch;let attempts=0;
+  globalThis.fetch=async(url,options)=>{
+    if(url.endsWith('/sendWidget')){attempts++;return Response.json({ok:false,error_code:500,description:'Internal error'},{status:500})}
+    return f.fetchFn(url,options);
+  };
+  try{
+    await sendWaterWidget(f.env,'123');await sendWaterWidget(f.env,'456');
+    assert.equal(attempts,2);assert.equal((await getWaterWidgetDelivery(f.env)).code,'TELEGRAM_HTTP_500');
   }finally{globalThis.fetch=old}
 });
 
